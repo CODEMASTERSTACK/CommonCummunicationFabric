@@ -34,6 +34,11 @@ class LocalNetworkService {
   /// Start TCP server on this device
   Future<void> startServer(String deviceName, {int port = defaultPort}) async {
     try {
+      // Close any existing server first
+      await closeServer();
+      // Small delay to ensure port is released
+      await Future.delayed(const Duration(milliseconds: 500));
+
       _serverSocket = await ServerSocket.bind(InternetAddress.anyIPv4, port);
 
       _serverSocket!.listen((Socket client) {
@@ -169,8 +174,12 @@ class LocalNetworkService {
         InternetAddress.anyIPv4,
         0,
       );
+      _announceSocket!.broadcastEnabled = true;
       String? localIp = await getLocalIpAddress();
       if (localIp == null) return;
+
+      // Calculate subnet broadcast address from IP and netmask
+      String broadcastAddr = _calculateBroadcastAddress(localIp);
 
       _advertiseTimer?.cancel();
       _advertiseTimer = Timer.periodic(Duration(milliseconds: intervalMs), (_) {
@@ -178,7 +187,7 @@ class LocalNetworkService {
         try {
           _announceSocket!.send(
             msg,
-            InternetAddress("255.255.255.255"),
+            InternetAddress(broadcastAddr),
             announcePort,
           );
         } catch (e) {
@@ -233,13 +242,15 @@ class LocalNetworkService {
     _listenSocket = null;
   }
 
-  /// Get local IP address
+  /// Get local IP address (prefer non-loopback, non-link-local)
   static Future<String?> getLocalIpAddress() async {
     try {
       final interfaces = await NetworkInterface.list();
       for (var interface in interfaces) {
         for (var address in interface.addresses) {
-          if (address.type == InternetAddressType.IPv4 && !address.isLoopback) {
+          if (address.type == InternetAddressType.IPv4 &&
+              !address.isLoopback &&
+              !address.address.startsWith('169.254')) {
             return address.address;
           }
         }
@@ -248,5 +259,17 @@ class LocalNetworkService {
       print('Error getting IP: $e');
     }
     return null;
+  }
+
+  /// Calculate subnet broadcast address (assumes /24 subnet)
+  String _calculateBroadcastAddress(String ip) {
+    try {
+      final parts = ip.split('.');
+      if (parts.length == 4) {
+        // For /24 networks, set last octet to 255
+        return '${parts[0]}.${parts[1]}.${parts[2]}.255';
+      }
+    } catch (_) {}
+    return '255.255.255.255';
   }
 }
