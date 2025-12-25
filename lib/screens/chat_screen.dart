@@ -1,0 +1,321 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import '../models/message.dart';
+import '../services/messaging_service.dart';
+import '../services/room_service.dart';
+
+class ChatScreen extends StatefulWidget {
+  final String roomCode;
+  final RoomService roomService;
+  final MessagingService messagingService;
+
+  const ChatScreen({
+    Key? key,
+    required this.roomCode,
+    required this.roomService,
+    required this.messagingService,
+  }) : super(key: key);
+
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+  final TextEditingController _messageController = TextEditingController();
+  late List<Message> _messages;
+  bool _isConnected = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  void _sendMessage() {
+    final message = _messageController.text.trim();
+    if (message.isEmpty) return;
+
+    widget.messagingService.addMessage(
+      senderDeviceId: widget.roomService.currentDeviceId,
+      senderDeviceName: widget.roomService.currentDeviceName,
+      content: message,
+      roomCode: widget.roomCode,
+    );
+
+    _messageController.clear();
+    setState(() {
+      _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
+    });
+  }
+
+  void _leaveRoom() {
+    widget.roomService.leaveRoom();
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final room = widget.roomService.getCurrentRoom();
+    final connectedDevices = widget.roomService.getConnectedDevices();
+
+    return WillPopScope(
+      onWillPop: () async {
+        _leaveRoom();
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Room'),
+              Text(
+                'Code: ${widget.roomCode}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Center(
+                child: Text(
+                  '${connectedDevices.length} device${connectedDevices.length != 1 ? 's' : ''}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            // Connected Devices Section
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    child: Text(
+                      'Connected Devices',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  SizedBox(
+                    height: 80,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                      scrollDirection: Axis.horizontal,
+                      itemCount: connectedDevices.length,
+                      itemBuilder: (context, index) {
+                        final device = connectedDevices[index];
+                        final isCurrentDevice =
+                            device.id == widget.roomService.currentDeviceId;
+
+                        return Card(
+                          color: isCurrentDevice
+                              ? Colors.blue.shade50
+                              : Colors.grey.shade50,
+                          child: Padding(
+                            padding: const EdgeInsets.all(12.0),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  device.type == 'phone'
+                                      ? Icons.smartphone
+                                      : Icons.desktop_mac,
+                                  color: device.isActive
+                                      ? Colors.green
+                                      : Colors.grey,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  device.name,
+                                  style: const TextStyle(fontSize: 10),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (isCurrentDevice)
+                                  const Text(
+                                    '(You)',
+                                    style: TextStyle(
+                                      fontSize: 8,
+                                      color: Colors.blue,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+
+            // Messages Section
+            Expanded(
+              child: _messages.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.chat_bubble_outline,
+                            size: 48,
+                            color: Colors.grey.shade300,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No messages yet',
+                            style: TextStyle(color: Colors.grey.shade500),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Send the first message to get started',
+                            style: TextStyle(
+                              color: Colors.grey.shade400,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      reverse: true,
+                      padding: const EdgeInsets.all(16.0),
+                      itemCount: _messages.length,
+                      itemBuilder: (context, index) {
+                        final message = _messages[_messages.length - 1 - index];
+                        final isCurrentUser =
+                            message.senderDeviceId ==
+                            widget.roomService.currentDeviceId;
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12.0),
+                          child: Align(
+                            alignment: isCurrentUser
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Column(
+                              crossAxisAlignment: isCurrentUser
+                                  ? CrossAxisAlignment.end
+                                  : CrossAxisAlignment.start,
+                              children: [
+                                if (!isCurrentUser)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 4.0),
+                                    child: Text(
+                                      message.senderDeviceName,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ),
+                                Container(
+                                  constraints: BoxConstraints(
+                                    maxWidth:
+                                        MediaQuery.of(context).size.width * 0.7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isCurrentUser
+                                        ? Colors.blue
+                                        : Colors.grey.shade300,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 10,
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        message.content,
+                                        style: TextStyle(
+                                          color: isCurrentUser
+                                              ? Colors.white
+                                              : Colors.black,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        DateFormat(
+                                          'HH:mm',
+                                        ).format(message.timestamp),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: isCurrentUser
+                                              ? Colors.white70
+                                              : Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+
+            // Message Input Section
+            Container(
+              padding: const EdgeInsets.all(12.0),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                border: Border(top: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: SafeArea(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _messageController,
+                        decoration: InputDecoration(
+                          hintText: 'Type a message...',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                        ),
+                        maxLines: null,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    CircleAvatar(
+                      backgroundColor: Colors.blue,
+                      child: IconButton(
+                        icon: const Icon(Icons.send, color: Colors.white),
+                        onPressed: _sendMessage,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
