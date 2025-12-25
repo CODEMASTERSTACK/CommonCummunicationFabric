@@ -7,7 +7,11 @@ class HomeScreen extends StatefulWidget {
   final RoomService roomService;
   final LocalNetworkService networkService;
 
-  const HomeScreen({Key? key, required this.roomService, required this.networkService}) : super(key: key);
+  const HomeScreen({
+    Key? key,
+    required this.roomService,
+    required this.networkService,
+  }) : super(key: key);
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -36,12 +40,16 @@ class _HomeScreenState extends State<HomeScreen> {
       final room = widget.roomService.createRoom();
 
       // Start server and advertise room
-      await widget.networkService.startServer(widget.roomService.currentDeviceName);
+      await widget.networkService.startServer(
+        widget.roomService.currentDeviceName,
+      );
       await widget.networkService.advertiseRoom(room.code);
 
       if (mounted) {
         setState(() => _isLoading = false);
-        Navigator.of(context).pushNamed('/chat', arguments: {'roomCode': room.code});
+        Navigator.of(
+          context,
+        ).pushNamed('/chat', arguments: {'roomCode': room.code});
       }
     } catch (e) {
       if (mounted) {
@@ -61,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    if (code.length != 6 || !RegExp(r'^\d{6}').hasMatch(code)) {
+    if (code.length != 6 || !RegExp(r'^\d{6}$').hasMatch(code)) {
       setState(() => _errorMessage = 'Room code must be 6 digits');
       return;
     }
@@ -73,25 +81,29 @@ class _HomeScreenState extends State<HomeScreen> {
 
     bool connected = false;
     try {
-      await widget.networkService.listenForAnnouncements(onAnnouncement: (room, host, port) async {
-        if (room == code && !connected) {
-          final socket = await widget.networkService.connectToServer(
-            host,
-            widget.roomService.currentDeviceId,
-            widget.roomService.currentDeviceName,
-            port: port,
-            roomCode: code,
-          );
-          if (socket != null) {
-            connected = true;
-            await widget.networkService.stopListening();
-            if (mounted) {
-              setState(() => _isLoading = false);
-              Navigator.of(context).pushNamed('/chat', arguments: {'roomCode': code});
+      await widget.networkService.listenForAnnouncements(
+        onAnnouncement: (room, host, port) async {
+          if (room == code && !connected) {
+            final socket = await widget.networkService.connectToServer(
+              host,
+              widget.roomService.currentDeviceId,
+              widget.roomService.currentDeviceName,
+              port: port,
+              roomCode: code,
+            );
+            if (socket != null) {
+              connected = true;
+              await widget.networkService.stopListening();
+              if (mounted) {
+                setState(() => _isLoading = false);
+                Navigator.of(
+                  context,
+                ).pushNamed('/chat', arguments: {'roomCode': code});
+              }
             }
           }
-        }
-      });
+        },
+      );
 
       // Wait up to 5 seconds for discovery
       await Future.delayed(const Duration(seconds: 5));

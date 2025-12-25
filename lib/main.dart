@@ -43,7 +43,9 @@ class _MainAppState extends State<MainApp> {
         try {
           _messagingService.addMessage(
             senderDeviceId: message['deviceId'] as String,
-            senderDeviceName: (message['deviceName'] as String?) ?? (message['deviceId'] as String),
+            senderDeviceName:
+                (message['deviceName'] as String?) ??
+                (message['deviceId'] as String),
             content: message['content'] as String,
             roomCode: roomCode,
           );
@@ -81,7 +83,10 @@ class _MainAppState extends State<MainApp> {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
-      home: HomeScreen(roomService: _roomService, networkService: _networkService),
+      home: HomeScreen(
+        roomService: _roomService,
+        networkService: _networkService,
+      ),
       onGenerateRoute: (settings) {
         if (settings.name == '/chat') {
           final args = settings.arguments as Map<String, dynamic>;

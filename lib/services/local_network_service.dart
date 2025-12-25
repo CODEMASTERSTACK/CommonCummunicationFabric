@@ -13,7 +13,8 @@ class LocalNetworkService {
   final Map<String, Socket> _connectedClients = {};
   final Map<String, String> _deviceNames = {};
 
-  final Function(String roomCode, Map<String, dynamic> message)? onMessageReceived;
+  final Function(String roomCode, Map<String, dynamic> message)?
+  onMessageReceived;
   final Function(String deviceId)? onDeviceConnected;
   final Function(String deviceId)? onDeviceDisconnected;
 
@@ -75,7 +76,8 @@ class LocalNetworkService {
 
         if (type == 'register') {
           _connectedClients[deviceId] = client;
-          _deviceNames[deviceId] = content; // store device name sent during register
+          _deviceNames[deviceId] =
+              content; // store device name sent during register
           onDeviceConnected?.call(deviceId);
 
           // If we have a RoomService, update room membership on the host
@@ -98,7 +100,11 @@ class LocalNetworkService {
     }
   }
 
-  void _broadcastMessage(String roomCode, String senderDeviceId, String content) {
+  void _broadcastMessage(
+    String roomCode,
+    String senderDeviceId,
+    String content,
+  ) {
     String messageData = '$roomCode|message|$senderDeviceId|$content';
     for (var client in _connectedClients.values) {
       try {
@@ -133,7 +139,12 @@ class LocalNetworkService {
   }
 
   /// Send message through existing connection
-  void sendMessage(Socket socket, String roomCode, String deviceId, String message) {
+  void sendMessage(
+    Socket socket,
+    String roomCode,
+    String deviceId,
+    String message,
+  ) {
     try {
       socket.write('$roomCode|message|$deviceId|$message\n');
     } catch (e) {
@@ -154,7 +165,10 @@ class LocalNetworkService {
   /// Start advertising a hosted room via UDP broadcasts
   Future<void> advertiseRoom(String roomCode, {int intervalMs = 2000}) async {
     try {
-      _announceSocket ??= await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      _announceSocket ??= await RawDatagramSocket.bind(
+        InternetAddress.anyIPv4,
+        0,
+      );
       String? localIp = await getLocalIpAddress();
       if (localIp == null) return;
 
@@ -162,7 +176,11 @@ class LocalNetworkService {
       _advertiseTimer = Timer.periodic(Duration(milliseconds: intervalMs), (_) {
         final msg = utf8.encode('ANNOUNCE|$roomCode|$localIp|$defaultPort');
         try {
-          _announceSocket!.send(msg, InternetAddress("255.255.255.255"), announcePort);
+          _announceSocket!.send(
+            msg,
+            InternetAddress("255.255.255.255"),
+            announcePort,
+          );
         } catch (e) {
           // ignore send errors
         }
@@ -181,10 +199,14 @@ class LocalNetworkService {
 
   /// Listen for announcements from hosts
   Future<void> listenForAnnouncements({
-    required void Function(String roomCode, String host, int port) onAnnouncement,
+    required void Function(String roomCode, String host, int port)
+    onAnnouncement,
   }) async {
     try {
-      _listenSocket ??= await RawDatagramSocket.bind(InternetAddress.anyIPv4, announcePort);
+      _listenSocket ??= await RawDatagramSocket.bind(
+        InternetAddress.anyIPv4,
+        announcePort,
+      );
       _listenSocket!.listen((RawSocketEvent event) {
         if (event == RawSocketEvent.read) {
           final dg = _listenSocket!.receive();
