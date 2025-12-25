@@ -95,6 +95,7 @@ class _MainAppState extends State<MainApp> {
               roomCode: args['roomCode'],
               roomService: _roomService,
               messagingService: _messagingService,
+              remoteSocket: args['remoteSocket'] as Socket?,
             ),
           );
         }

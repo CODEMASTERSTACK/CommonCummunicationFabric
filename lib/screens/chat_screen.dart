@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'dart:io';
+import 'dart:convert';
 import '../models/message.dart';
 import '../services/messaging_service.dart';
 import '../services/room_service.dart';
@@ -8,12 +10,14 @@ class ChatScreen extends StatefulWidget {
   final String roomCode;
   final RoomService roomService;
   final MessagingService messagingService;
+  final Socket? remoteSocket; // Connection to remote server if joined remotely
 
   const ChatScreen({
     Key? key,
     required this.roomCode,
     required this.roomService,
     required this.messagingService,
+    this.remoteSocket,
   }) : super(key: key);
 
   @override
@@ -29,6 +33,55 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
+    // If we're connected remotely, listen for incoming messages
+    if (widget.remoteSocket != null) {
+      _listenForRemoteMessages();
+    }
+  }
+
+  void _listenForRemoteMessages() {
+    widget.remoteSocket!.listen(
+      (List<int> data) {
+        try {
+          String message = utf8.decode(data).trim();
+          // Protocol: roomCode|type|deviceId|content
+          final parts = message.split('|');
+          if (parts.length >= 4) {
+            final roomCode = parts[0];
+            final type = parts[1];
+            final deviceId = parts[2];
+            final content = parts.sublist(3).join('|');
+
+            if (roomCode == widget.roomCode && type == 'message') {
+              widget.messagingService.addMessage(
+                senderDeviceId: deviceId,
+                senderDeviceName: deviceId,
+                content: content,
+                roomCode: roomCode,
+              );
+              if (mounted) {
+                setState(() {
+                  _messages = widget.messagingService
+                      .getMessagesForRoom(widget.roomCode);
+                });
+              }
+            }
+          }
+        } catch (e) {
+          print('Error receiving message: $e');
+        }
+      },
+      onError: (error) {
+        if (mounted) {
+          setState(() => _isConnected = false);
+        }
+      },
+      onDone: () {
+        if (mounted) {
+          setState(() => _isConnected = false);
+        }
+      },
+    );
   }
 
   @override
@@ -41,16 +94,29 @@ class _ChatScreenState extends State<ChatScreen> {
     final message = _messageController.text.trim();
     if (message.isEmpty) return;
 
-    widget.messagingService.addMessage(
-      senderDeviceId: widget.roomService.currentDeviceId,
-      senderDeviceName: widget.roomService.currentDeviceName,
-      content: message,
-      roomCode: widget.roomCode,
-    );
+    // If connected remotely, send via socket; otherwise add locally
+    if (widget.remoteSocket != null) {
+      try {
+        final msgData =
+            '${widget.roomCode}|message|${widget.roomService.currentDeviceId}|$message\n';
+        widget.remoteSocket!.write(msgData);
+      } catch (e) {
+        print('Error sending message: $e');
+        return;
+      }
+    } else {
+      widget.messagingService.addMessage(
+        senderDeviceId: widget.roomService.currentDeviceId,
+        senderDeviceName: widget.roomService.currentDeviceName,
+        content: message,
+        roomCode: widget.roomCode,
+      );
+    }
 
     _messageController.clear();
     setState(() {
-      _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
+      _messages =
+          widget.messagingService.getMessagesForRoom(widget.roomCode);
     });
   }
 

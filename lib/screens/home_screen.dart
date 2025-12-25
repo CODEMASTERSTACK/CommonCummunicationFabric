@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/room_service.dart';
 import '../services/local_network_service.dart';
@@ -22,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = false;
   String? _errorMessage;
   StreamSubscription? _announceSub;
+  Socket? _connectedSocket; // Store connection to remote server
 
   @override
   void dispose() {
@@ -93,12 +95,16 @@ class _HomeScreenState extends State<HomeScreen> {
             );
             if (socket != null) {
               connected = true;
+              _connectedSocket = socket; // Store socket for ChatScreen
               await widget.networkService.stopListening();
               if (mounted) {
                 setState(() => _isLoading = false);
                 Navigator.of(
                   context,
-                ).pushNamed('/chat', arguments: {'roomCode': code});
+                ).pushNamed('/chat', arguments: {
+                  'roomCode': code,
+                  'remoteSocket': socket, // Pass socket to ChatScreen
+                });
               }
             }
           }
@@ -109,12 +115,18 @@ class _HomeScreenState extends State<HomeScreen> {
       await Future.delayed(const Duration(seconds: 5));
       if (!connected) {
         await widget.networkService.stopListening();
-        // Fallback: attempt local join (if roomService has it locally)
+        // Only attempt local join if network discovery failed
         final success = widget.roomService.joinRoom(
           code,
           deviceName: widget.roomService.currentDeviceName,
         );
-        if (success) connected = true;
+        if (success && mounted) {
+          connected = true;
+          setState(() => _isLoading = false);
+          Navigator.of(
+            context,
+          ).pushNamed('/chat', arguments: {'roomCode': code});
+        }
       }
     } catch (e) {
       // ignore and show error below
