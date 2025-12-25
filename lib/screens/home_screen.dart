@@ -96,15 +96,21 @@ class _HomeScreenState extends State<HomeScreen> {
             if (socket != null) {
               connected = true;
               _connectedSocket = socket; // Store socket for ChatScreen
+              // Create a local room instance so ChatScreen can read from RoomService
+              widget.roomService.joinRemoteRoom(
+                code,
+                deviceName: widget.roomService.currentDeviceName,
+              );
               await widget.networkService.stopListening();
               if (mounted) {
                 setState(() => _isLoading = false);
-                Navigator.of(
-                  context,
-                ).pushNamed('/chat', arguments: {
-                  'roomCode': code,
-                  'remoteSocket': socket, // Pass socket to ChatScreen
-                });
+                Navigator.of(context).pushNamed(
+                  '/chat',
+                  arguments: {
+                    'roomCode': code,
+                    'remoteSocket': socket, // Pass socket to ChatScreen
+                  },
+                );
               }
             }
           }

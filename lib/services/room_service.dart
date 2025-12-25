@@ -73,6 +73,35 @@ class RoomService {
     return false;
   }
 
+  /// Join a remote room (creates local room instance for UI purposes)
+  void joinRemoteRoom(String code, {required String deviceName}) {
+    if (!_rooms.containsKey(code)) {
+      Room room = Room(
+        code: code,
+        creatorDeviceId: '', // Remote room, no local creator
+        creatorDeviceName: 'Remote Host',
+        createdAt: DateTime.now(),
+        connectedDevices: [],
+      );
+      _rooms[code] = room;
+    }
+    
+    Room room = _rooms[code]!;
+    Device newDevice = Device(
+      id: _currentDeviceId,
+      name: deviceName,
+      type: _getDeviceType(),
+      connectedAt: DateTime.now(),
+    );
+
+    bool exists = room.connectedDevices.any((d) => d.id == _currentDeviceId);
+    if (!exists) {
+      room.connectedDevices.add(newDevice);
+    }
+
+    _currentRoomCode = code;
+  }
+
   /// Leave current room
   void leaveRoom() {
     if (_currentRoomCode != null && _rooms.containsKey(_currentRoomCode)) {

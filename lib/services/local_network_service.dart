@@ -88,6 +88,8 @@ class LocalNetworkService {
           // If we have a RoomService, update room membership on the host
           if (roomService != null) {
             roomService!.joinRoom(roomCode, deviceName: content);
+            // Broadcast device join event to all clients in this room
+            _broadcastDeviceJoined(roomCode, deviceId, content);
           }
         } else if (type == 'message') {
           final deviceName = _deviceNames[deviceId] ?? deviceId;
@@ -116,6 +118,17 @@ class LocalNetworkService {
         client.write('$messageData\n');
       } catch (e) {
         print('Error broadcasting message: $e');
+      }
+    }
+  }
+
+  void _broadcastDeviceJoined(String roomCode, String deviceId, String deviceName) {
+    String msg = '$roomCode|device_joined|$deviceId|$deviceName';
+    for (var client in _connectedClients.values) {
+      try {
+        client.write('$msg\n');
+      } catch (e) {
+        // ignore
       }
     }
   }

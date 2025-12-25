@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'dart:io';
 import 'dart:convert';
 import '../models/message.dart';
+import '../models/device.dart';
 import '../services/messaging_service.dart';
 import '../services/room_service.dart';
 
@@ -61,9 +62,31 @@ class _ChatScreenState extends State<ChatScreen> {
               );
               if (mounted) {
                 setState(() {
-                  _messages = widget.messagingService
-                      .getMessagesForRoom(widget.roomCode);
+                  _messages = widget.messagingService.getMessagesForRoom(
+                    widget.roomCode,
+                  );
                 });
+              }
+            } else if (roomCode == widget.roomCode && type == 'device_joined') {
+              // Another device joined, add it to the local room
+              final room = widget.roomService.getCurrentRoom();
+              if (room != null) {
+                final alreadyExists =
+                    room.connectedDevices.any((d) => d.id == deviceId);
+                if (!alreadyExists) {
+                  room.connectedDevices.add(
+                    Device(
+                      id: deviceId,
+                      name: content,
+                      type: 'phone',
+                      connectedAt: DateTime.now(),
+                      isActive: true,
+                    ),
+                  );
+                  if (mounted) {
+                    setState(() {}); // Trigger rebuild to update device list
+                  }
+                }
               }
             }
           }
@@ -115,8 +138,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _messageController.clear();
     setState(() {
-      _messages =
-          widget.messagingService.getMessagesForRoom(widget.roomCode);
+      _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
     });
   }
 
