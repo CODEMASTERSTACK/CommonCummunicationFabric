@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/room_service.dart';
+import '../services/local_network_service.dart';
 
 class HomeScreen extends StatefulWidget {
   final RoomService roomService;
+  final LocalNetworkService networkService;
 
-  const HomeScreen({Key? key, required this.roomService}) : super(key: key);
+  const HomeScreen({Key? key, required this.roomService, required this.networkService}) : super(key: key);
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -14,14 +17,16 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _codeController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
+  StreamSubscription? _announceSub;
 
   @override
   void dispose() {
     _codeController.dispose();
+    _announceSub?.cancel();
     super.dispose();
   }
 
-  void _createRoom() {
+  Future<void> _createRoom() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -30,11 +35,13 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final room = widget.roomService.createRoom();
 
+      // Start server and advertise room
+      await widget.networkService.startServer(widget.roomService.currentDeviceName);
+      await widget.networkService.advertiseRoom(room.code);
+
       if (mounted) {
         setState(() => _isLoading = false);
-        Navigator.of(
-          context,
-        ).pushNamed('/chat', arguments: {'roomCode': room.code});
+        Navigator.of(context).pushNamed('/chat', arguments: {'roomCode': room.code});
       }
     } catch (e) {
       if (mounted) {
@@ -46,7 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _joinRoom() {
+  Future<void> _joinRoom() async {
     final code = _codeController.text.trim();
 
     if (code.isEmpty) {
@@ -54,7 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    if (code.length != 6 || !RegExp(r'^\d{6}$').hasMatch(code)) {
+    if (code.length != 6 || !RegExp(r'^\d{6}').hasMatch(code)) {
       setState(() => _errorMessage = 'Room code must be 6 digits');
       return;
     }
@@ -64,32 +71,48 @@ class _HomeScreenState extends State<HomeScreen> {
       _errorMessage = null;
     });
 
+    bool connected = false;
     try {
-      final success = widget.roomService.joinRoom(
-        code,
-        deviceName: widget.roomService.currentDeviceName,
-      );
-
-      if (mounted) {
-        if (success) {
-          setState(() => _isLoading = false);
-          Navigator.of(
-            context,
-          ).pushNamed('/chat', arguments: {'roomCode': code});
-        } else {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = 'Room code not found or expired';
-          });
+      await widget.networkService.listenForAnnouncements(onAnnouncement: (room, host, port) async {
+        if (room == code && !connected) {
+          final socket = await widget.networkService.connectToServer(
+            host,
+            widget.roomService.currentDeviceId,
+            widget.roomService.currentDeviceName,
+            port: port,
+            roomCode: code,
+          );
+          if (socket != null) {
+            connected = true;
+            await widget.networkService.stopListening();
+            if (mounted) {
+              setState(() => _isLoading = false);
+              Navigator.of(context).pushNamed('/chat', arguments: {'roomCode': code});
+            }
+          }
         }
+      });
+
+      // Wait up to 5 seconds for discovery
+      await Future.delayed(const Duration(seconds: 5));
+      if (!connected) {
+        await widget.networkService.stopListening();
+        // Fallback: attempt local join (if roomService has it locally)
+        final success = widget.roomService.joinRoom(
+          code,
+          deviceName: widget.roomService.currentDeviceName,
+        );
+        if (success) connected = true;
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'Failed to join room: $e';
-        });
-      }
+      // ignore and show error below
+    }
+
+    if (mounted && !connected) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Room code not found or expired';
+      });
     }
   }
 
@@ -159,7 +182,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
               // Create Room Button
               ElevatedButton.icon(
-                onPressed: _isLoading ? null : _createRoom,
+                onPressed: _isLoading ? null : () => _createRoom(),
                 icon: const Icon(Icons.add_circle_outline),
                 label: const Text('Create New Room'),
                 style: ElevatedButton.styleFrom(
@@ -216,7 +239,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
-                onPressed: _isLoading ? null : _joinRoom,
+                onPressed: _isLoading ? null : () => _joinRoom(),
                 icon: const Icon(Icons.login),
                 label: const Text('Join Room'),
                 style: ElevatedButton.styleFrom(

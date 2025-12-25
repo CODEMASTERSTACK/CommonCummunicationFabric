@@ -4,6 +4,7 @@ import 'screens/home_screen.dart';
 import 'screens/chat_screen.dart';
 import 'services/room_service.dart';
 import 'services/messaging_service.dart';
+import 'services/local_network_service.dart';
 
 void main() {
   runApp(const MainApp());
@@ -19,6 +20,7 @@ class MainApp extends StatefulWidget {
 class _MainAppState extends State<MainApp> {
   late RoomService _roomService;
   late MessagingService _messagingService;
+  late LocalNetworkService _networkService;
 
   @override
   void initState() {
@@ -29,7 +31,29 @@ class _MainAppState extends State<MainApp> {
   void _initializeServices() {
     String deviceName = _getDeviceIdentifier();
     _roomService = RoomService(deviceName: deviceName);
+    _initMessagingAndNetwork(deviceName);
+  }
+
+  void _initMessagingAndNetwork(String deviceName) {
     _messagingService = MessagingService();
+
+    _networkService = LocalNetworkService(
+      roomService: _roomService,
+      onMessageReceived: (roomCode, message) {
+        try {
+          _messagingService.addMessage(
+            senderDeviceId: message['deviceId'] as String,
+            senderDeviceName: (message['deviceName'] as String?) ?? (message['deviceId'] as String),
+            content: message['content'] as String,
+            roomCode: roomCode,
+          );
+        } catch (_) {}
+      },
+
+      onDeviceConnected: (deviceId) {
+        // placeholder: roomService will be updated by LocalNetworkService on register
+      },
+    );
   }
 
   String _getDeviceIdentifier() {
@@ -57,7 +81,7 @@ class _MainAppState extends State<MainApp> {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
-      home: HomeScreen(roomService: _roomService),
+      home: HomeScreen(roomService: _roomService, networkService: _networkService),
       onGenerateRoute: (settings) {
         if (settings.name == '/chat') {
           final args = settings.arguments as Map<String, dynamic>;

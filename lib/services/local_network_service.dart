@@ -1,29 +1,41 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:uuid/uuid.dart';
+import 'room_service.dart';
 
 class LocalNetworkService {
   static const int defaultPort = 5000;
-  late ServerSocket _serverSocket;
+  static const int announcePort = 5001;
+
+  ServerSocket? _serverSocket;
   final String deviceId = const Uuid().v4();
   final Map<String, Socket> _connectedClients = {};
-  final Function(String roomCode, Map<String, dynamic> message)?
-  onMessageReceived;
+  final Map<String, String> _deviceNames = {};
+
+  final Function(String roomCode, Map<String, dynamic> message)? onMessageReceived;
   final Function(String deviceId)? onDeviceConnected;
   final Function(String deviceId)? onDeviceDisconnected;
+
+  final RoomService? roomService;
+
+  RawDatagramSocket? _announceSocket;
+  RawDatagramSocket? _listenSocket;
+  Timer? _advertiseTimer;
 
   LocalNetworkService({
     this.onMessageReceived,
     this.onDeviceConnected,
     this.onDeviceDisconnected,
+    this.roomService,
   });
 
-  /// Start server on this device
+  /// Start TCP server on this device
   Future<void> startServer(String deviceName, {int port = defaultPort}) async {
     try {
       _serverSocket = await ServerSocket.bind(InternetAddress.anyIPv4, port);
-      print('Server started on port $port');
 
-      _serverSocket.listen((Socket client) {
+      _serverSocket!.listen((Socket client) {
         _handleClientConnection(client, deviceName);
       });
     } catch (e) {
@@ -33,23 +45,19 @@ class LocalNetworkService {
   }
 
   void _handleClientConnection(Socket client, String deviceName) {
-    print('Client connected: ${client.remoteAddress}');
-
     client.listen(
       (List<int> data) {
         try {
-          String message = String.fromCharCodes(data).trim();
+          String message = utf8.decode(data).trim();
           _processIncomingMessage(message, client);
         } catch (e) {
           print('Error processing message: $e');
         }
       },
       onError: (error) {
-        print('Client error: $error');
         client.close();
       },
       onDone: () {
-        print('Client disconnected');
         client.close();
       },
     );
@@ -57,7 +65,7 @@ class LocalNetworkService {
 
   void _processIncomingMessage(String message, Socket client) {
     try {
-      // Simple protocol: roomCode|type|deviceId|content
+      // Protocol: roomCode|type|deviceId|content
       List<String> parts = message.split('|');
       if (parts.length >= 4) {
         String roomCode = parts[0];
@@ -67,14 +75,21 @@ class LocalNetworkService {
 
         if (type == 'register') {
           _connectedClients[deviceId] = client;
+          _deviceNames[deviceId] = content; // store device name sent during register
           onDeviceConnected?.call(deviceId);
+
+          // If we have a RoomService, update room membership on the host
+          if (roomService != null) {
+            roomService!.joinRoom(roomCode, deviceName: content);
+          }
         } else if (type == 'message') {
+          final deviceName = _deviceNames[deviceId] ?? deviceId;
           onMessageReceived?.call(roomCode, {
             'deviceId': deviceId,
+            'deviceName': deviceName,
             'content': content,
             'timestamp': DateTime.now().toIso8601String(),
           });
-          // Broadcast to other clients
           _broadcastMessage(roomCode, deviceId, content);
         }
       }
@@ -83,11 +98,7 @@ class LocalNetworkService {
     }
   }
 
-  void _broadcastMessage(
-    String roomCode,
-    String senderDeviceId,
-    String content,
-  ) {
+  void _broadcastMessage(String roomCode, String senderDeviceId, String content) {
     String messageData = '$roomCode|message|$senderDeviceId|$content';
     for (var client in _connectedClients.values) {
       try {
@@ -98,17 +109,22 @@ class LocalNetworkService {
     }
   }
 
-  /// Connect to a server
+  /// Connect to a server and register for a room
   Future<Socket?> connectToServer(
     String serverAddress,
     String deviceId,
     String deviceName, {
     int port = defaultPort,
+    String? roomCode,
   }) async {
     try {
       Socket socket = await Socket.connect(serverAddress, port);
-      // Register this device with the server
-      socket.write('register|$deviceId|$deviceName\n');
+      // Register this device with the server including room code
+      if (roomCode != null) {
+        socket.write('$roomCode|register|$deviceId|$deviceName\n');
+      } else {
+        socket.write('register|$deviceId|$deviceName\n');
+      }
       return socket;
     } catch (e) {
       print('Error connecting to server: $e');
@@ -117,12 +133,7 @@ class LocalNetworkService {
   }
 
   /// Send message through existing connection
-  void sendMessage(
-    Socket socket,
-    String roomCode,
-    String deviceId,
-    String message,
-  ) {
+  void sendMessage(Socket socket, String roomCode, String deviceId, String message) {
     try {
       socket.write('$roomCode|message|$deviceId|$message\n');
     } catch (e) {
@@ -130,13 +141,74 @@ class LocalNetworkService {
     }
   }
 
-  /// Close server
+  /// Stop server
   Future<void> closeServer() async {
-    await _serverSocket.close();
+    await _serverSocket?.close();
     for (var client in _connectedClients.values) {
       await client.close();
     }
     _connectedClients.clear();
+    await stopAdvertising();
+  }
+
+  /// Start advertising a hosted room via UDP broadcasts
+  Future<void> advertiseRoom(String roomCode, {int intervalMs = 2000}) async {
+    try {
+      _announceSocket ??= await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      String? localIp = await getLocalIpAddress();
+      if (localIp == null) return;
+
+      _advertiseTimer?.cancel();
+      _advertiseTimer = Timer.periodic(Duration(milliseconds: intervalMs), (_) {
+        final msg = utf8.encode('ANNOUNCE|$roomCode|$localIp|$defaultPort');
+        try {
+          _announceSocket!.send(msg, InternetAddress("255.255.255.255"), announcePort);
+        } catch (e) {
+          // ignore send errors
+        }
+      });
+    } catch (e) {
+      print('Error advertising room: $e');
+    }
+  }
+
+  Future<void> stopAdvertising() async {
+    _advertiseTimer?.cancel();
+    _advertiseTimer = null;
+    _announceSocket?.close();
+    _announceSocket = null;
+  }
+
+  /// Listen for announcements from hosts
+  Future<void> listenForAnnouncements({
+    required void Function(String roomCode, String host, int port) onAnnouncement,
+  }) async {
+    try {
+      _listenSocket ??= await RawDatagramSocket.bind(InternetAddress.anyIPv4, announcePort);
+      _listenSocket!.listen((RawSocketEvent event) {
+        if (event == RawSocketEvent.read) {
+          final dg = _listenSocket!.receive();
+          if (dg == null) return;
+          final msg = utf8.decode(dg.data).trim();
+          if (msg.startsWith('ANNOUNCE|')) {
+            final parts = msg.split('|');
+            if (parts.length >= 4) {
+              final room = parts[1];
+              final host = parts[2];
+              final port = int.tryParse(parts[3]) ?? defaultPort;
+              onAnnouncement(room, host, port);
+            }
+          }
+        }
+      });
+    } catch (e) {
+      print('Error listening for announcements: $e');
+    }
+  }
+
+  Future<void> stopListening() async {
+    _listenSocket?.close();
+    _listenSocket = null;
   }
 
   /// Get local IP address
