@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
 import 'dart:convert';
+import 'dart:async';
 import '../models/message.dart';
 import '../models/device.dart';
 import '../services/messaging_service.dart';
@@ -32,6 +33,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   late List<Message> _messages;
   bool _isConnected = true;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
@@ -40,7 +42,26 @@ class _ChatScreenState extends State<ChatScreen> {
     // If we're connected remotely, listen for incoming messages
     if (widget.remoteSocket != null) {
       _listenForRemoteMessages();
+    } else {
+      // For host mode, start a timer to refresh messages periodically
+      // This ensures the UI updates when messages are received from clients
+      _refreshTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        if (mounted) {
+          setState(() {
+            _messages = widget.messagingService.getMessagesForRoom(
+              widget.roomCode,
+            );
+          });
+        }
+      });
     }
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _messageController.dispose();
+    super.dispose();
   }
 
   void _listenForRemoteMessages() {
@@ -109,12 +130,6 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       },
     );
-  }
-
-  @override
-  void dispose() {
-    _messageController.dispose();
-    super.dispose();
   }
 
   void _sendMessage() {
