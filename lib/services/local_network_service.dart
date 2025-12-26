@@ -116,19 +116,38 @@ class LocalNetworkService {
     for (var client in _connectedClients.values) {
       try {
         client.write('$messageData\n');
+        client.flush();
       } catch (e) {
         print('Error broadcasting message: $e');
       }
     }
   }
 
-  void _broadcastDeviceJoined(String roomCode, String deviceId, String deviceName) {
+  void _broadcastDeviceJoined(
+    String roomCode,
+    String deviceId,
+    String deviceName,
+  ) {
     String msg = '$roomCode|device_joined|$deviceId|$deviceName';
     for (var client in _connectedClients.values) {
       try {
         client.write('$msg\n');
+        client.flush();
       } catch (e) {
         // ignore
+      }
+    }
+  }
+
+  /// Host broadcasts a message from itself to all connected clients
+  void hostBroadcastMessage(String roomCode, String deviceId, String message) {
+    String msg = '$roomCode|message|$deviceId|$message';
+    for (var client in _connectedClients.values) {
+      try {
+        client.write('$msg\n');
+        client.flush();
+      } catch (e) {
+        print('Error broadcasting host message: $e');
       }
     }
   }

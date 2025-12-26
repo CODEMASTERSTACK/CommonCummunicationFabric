@@ -6,11 +6,13 @@ import '../models/message.dart';
 import '../models/device.dart';
 import '../services/messaging_service.dart';
 import '../services/room_service.dart';
+import '../services/local_network_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomCode;
   final RoomService roomService;
   final MessagingService messagingService;
+  final LocalNetworkService networkService;
   final Socket? remoteSocket; // Connection to remote server if joined remotely
 
   const ChatScreen({
@@ -18,6 +20,7 @@ class ChatScreen extends StatefulWidget {
     required this.roomCode,
     required this.roomService,
     required this.messagingService,
+    required this.networkService,
     this.remoteSocket,
   }) : super(key: key);
 
@@ -71,8 +74,9 @@ class _ChatScreenState extends State<ChatScreen> {
               // Another device joined, add it to the local room
               final room = widget.roomService.getCurrentRoom();
               if (room != null) {
-                final alreadyExists =
-                    room.connectedDevices.any((d) => d.id == deviceId);
+                final alreadyExists = room.connectedDevices.any(
+                  (d) => d.id == deviceId,
+                );
                 if (!alreadyExists) {
                   room.connectedDevices.add(
                     Device(
@@ -123,6 +127,15 @@ class _ChatScreenState extends State<ChatScreen> {
         final msgData =
             '${widget.roomCode}|message|${widget.roomService.currentDeviceId}|$message\n';
         widget.remoteSocket!.write(msgData);
+        widget.remoteSocket!.flush(); // Ensure message is sent immediately
+
+        // Also add to local messagingService so it appears on this device
+        widget.messagingService.addMessage(
+          senderDeviceId: widget.roomService.currentDeviceId,
+          senderDeviceName: widget.roomService.currentDeviceName,
+          content: message,
+          roomCode: widget.roomCode,
+        );
       } catch (e) {
         print('Error sending message: $e');
         return;
@@ -133,6 +146,12 @@ class _ChatScreenState extends State<ChatScreen> {
         senderDeviceName: widget.roomService.currentDeviceName,
         content: message,
         roomCode: widget.roomCode,
+      );
+      // Host broadcasts message to all connected clients
+      widget.networkService.hostBroadcastMessage(
+        widget.roomCode,
+        widget.roomService.currentDeviceId,
+        message,
       );
     }
 

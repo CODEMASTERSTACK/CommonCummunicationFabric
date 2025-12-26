@@ -85,7 +85,7 @@ class RoomService {
       );
       _rooms[code] = room;
     }
-    
+
     Room room = _rooms[code]!;
     Device newDevice = Device(
       id: _currentDeviceId,
