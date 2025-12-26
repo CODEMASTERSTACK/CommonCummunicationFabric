@@ -52,27 +52,17 @@ class _DeviceNameScreenState extends State<DeviceNameScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.device_hub,
-              size: 64,
-              color: Colors.blue,
-            ),
+            const Icon(Icons.device_hub, size: 64, color: Colors.blue),
             const SizedBox(height: 32),
             const Text(
               'Enter Your Device Name',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
             const Text(
               'This name will be displayed to other devices in your room',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),

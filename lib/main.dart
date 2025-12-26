@@ -79,6 +79,23 @@ class _MainAppState extends State<MainApp> {
 
   @override
   Widget build(BuildContext context) {
+    // If device name has been selected, show HomeScreen, otherwise show DeviceNameScreen
+    Widget homeWidget = _deviceName == null || _deviceName == _getDeviceIdentifier()
+        ? DeviceNameScreen(
+            defaultName: _deviceName ?? 'Unknown Device',
+            onNameSelected: (selectedName) {
+              setState(() {
+                _deviceName = selectedName;
+                _roomService = RoomService(deviceName: selectedName);
+                _initMessagingAndNetwork(selectedName);
+              });
+            },
+          )
+        : HomeScreen(
+            roomService: _roomService,
+            networkService: _networkService,
+          );
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Common Communication',
@@ -86,24 +103,7 @@ class _MainAppState extends State<MainApp> {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
-      home: DeviceNameScreen(
-        defaultName: _deviceName ?? 'Unknown Device',
-        onNameSelected: (selectedName) {
-          setState(() {
-            _deviceName = selectedName;
-            _roomService = RoomService(deviceName: selectedName);
-            _initMessagingAndNetwork(selectedName);
-          });
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (context) => HomeScreen(
-                roomService: _roomService,
-                networkService: _networkService,
-              ),
-            ),
-          );
-        },
-      ),
+      home: homeWidget,
       onGenerateRoute: (settings) {
         if (settings.name == '/chat') {
           final args = settings.arguments as Map<String, dynamic>;
