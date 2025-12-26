@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:uuid/uuid.dart';
 import 'room_service.dart';
+import '../models/room.dart';
 
 class LocalNetworkService {
   static const int defaultPort = 5000;
@@ -80,15 +81,37 @@ class LocalNetworkService {
         String content = parts.sublist(3).join('|');
 
         if (type == 'register') {
+          // Store socket and device name for this connection
           _connectedClients[deviceId] = client;
           _deviceNames[deviceId] =
               content; // store device name sent during register
           onDeviceConnected?.call(deviceId);
 
-          // If we have a RoomService, update room membership on the host
+          // If we have a RoomService (we are host), send current room membership
+          // to the newly connected client first so it learns about the host and
+          // any already-joined devices, then add the new device and broadcast.
           if (roomService != null) {
-            roomService!.joinRoom(roomCode, deviceName: content);
-            // Broadcast device join event to all clients in this room
+            // Send existing devices in this room to the newly connected client
+            final Room? existingRoom = roomService!.getRoom(roomCode);
+            if (existingRoom != null) {
+              for (var d in existingRoom.connectedDevices) {
+                try {
+                  client.write('$roomCode|device_joined|${d.id}|${d.name}\n');
+                  client.flush();
+                } catch (e) {
+                  // ignore
+                }
+              }
+            }
+
+            // Now add the new device to the host's room using the remote deviceId
+            roomService!.joinRoom(
+              roomCode,
+              deviceId: deviceId,
+              deviceName: content,
+            );
+
+            // Broadcast device join event to all connected clients (including the new one)
             _broadcastDeviceJoined(roomCode, deviceId, content);
           }
         } else if (type == 'message') {

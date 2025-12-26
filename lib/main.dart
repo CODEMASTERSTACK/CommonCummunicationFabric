@@ -80,7 +80,8 @@ class _MainAppState extends State<MainApp> {
   @override
   Widget build(BuildContext context) {
     // If device name has been selected, show HomeScreen, otherwise show DeviceNameScreen
-    Widget homeWidget = _deviceName == null || _deviceName == _getDeviceIdentifier()
+    Widget homeWidget =
+        _deviceName == null || _deviceName == _getDeviceIdentifier()
         ? DeviceNameScreen(
             defaultName: _deviceName ?? 'Unknown Device',
             onNameSelected: (selectedName) {

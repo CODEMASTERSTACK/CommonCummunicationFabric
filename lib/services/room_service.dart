@@ -49,20 +49,23 @@ class RoomService {
     return room;
   }
 
-  /// Join existing room
-  bool joinRoom(String code, {required String deviceName}) {
+  /// Join existing room. If `deviceId` is provided it will be used
+  /// for the device entry (used by hosts when adding remote clients).
+  bool joinRoom(String code, {String? deviceId, required String deviceName}) {
     if (_rooms.containsKey(code)) {
       Room room = _rooms[code]!;
 
+      final idToUse = deviceId ?? _currentDeviceId;
+
       Device newDevice = Device(
-        id: _currentDeviceId,
+        id: idToUse,
         name: deviceName,
         type: _getDeviceType(),
         connectedAt: DateTime.now(),
       );
 
       // Check if device already exists
-      bool exists = room.connectedDevices.any((d) => d.id == _currentDeviceId);
+      bool exists = room.connectedDevices.any((d) => d.id == idToUse);
       if (!exists) {
         room.connectedDevices.add(newDevice);
       }
@@ -71,6 +74,11 @@ class RoomService {
       return true;
     }
     return false;
+  }
+
+  /// Return a room by code (if available)
+  Room? getRoom(String code) {
+    return _rooms[code];
   }
 
   /// Join a remote room (creates local room instance for UI purposes)

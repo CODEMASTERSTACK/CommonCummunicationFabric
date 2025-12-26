@@ -6,7 +6,7 @@ class DeviceUtils {
     if (Platform.isAndroid) {
       return 'phone';
     } else if (Platform.isIOS) {
-      return 'phone';
+      return 'iphone';
     } else if (Platform.isWindows) {
       return 'pc';
     } else if (Platform.isMacOS) {
