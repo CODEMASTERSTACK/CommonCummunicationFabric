@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'screens/device_name_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/chat_screen.dart';
 import 'services/room_service.dart';
@@ -21,6 +22,7 @@ class _MainAppState extends State<MainApp> {
   late RoomService _roomService;
   late MessagingService _messagingService;
   late LocalNetworkService _networkService;
+  String? _deviceName;
 
   @override
   void initState() {
@@ -32,6 +34,7 @@ class _MainAppState extends State<MainApp> {
     String deviceName = _getDeviceIdentifier();
     _roomService = RoomService(deviceName: deviceName);
     _initMessagingAndNetwork(deviceName);
+    _deviceName = deviceName;
   }
 
   void _initMessagingAndNetwork(String deviceName) {
@@ -83,9 +86,23 @@ class _MainAppState extends State<MainApp> {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
-      home: HomeScreen(
-        roomService: _roomService,
-        networkService: _networkService,
+      home: DeviceNameScreen(
+        defaultName: _deviceName ?? 'Unknown Device',
+        onNameSelected: (selectedName) {
+          setState(() {
+            _deviceName = selectedName;
+            _roomService = RoomService(deviceName: selectedName);
+            _initMessagingAndNetwork(selectedName);
+          });
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => HomeScreen(
+                roomService: _roomService,
+                networkService: _networkService,
+              ),
+            ),
+          );
+        },
       ),
       onGenerateRoute: (settings) {
         if (settings.name == '/chat') {
