@@ -128,14 +128,7 @@ class _ChatScreenState extends State<ChatScreen> {
             '${widget.roomCode}|message|${widget.roomService.currentDeviceId}|$message\n';
         widget.remoteSocket!.write(msgData);
         widget.remoteSocket!.flush(); // Ensure message is sent immediately
-
-        // Also add to local messagingService so it appears on this device
-        widget.messagingService.addMessage(
-          senderDeviceId: widget.roomService.currentDeviceId,
-          senderDeviceName: widget.roomService.currentDeviceName,
-          content: message,
-          roomCode: widget.roomCode,
-        );
+        // Don't add locally - the server will broadcast it back to us
       } catch (e) {
         print('Error sending message: $e');
         return;
