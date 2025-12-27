@@ -179,8 +179,32 @@ class LocalNetworkService {
           _broadcastMessage(roomCode, deviceId, content);
         } else if (type == 'fileshare') {
           // Handle file share message from client
-          final deviceName = _deviceNames[deviceId] ?? deviceId;
+          final deviceName = _deviceNames[deviceId] ?? 'Unknown Device';
           print('Received fileshare from $deviceName');
+          
+          // Parse file metadata from content
+          try {
+            final fileMetadata = jsonDecode(content);
+            final fileName = fileMetadata['fileName'] ?? 'unknown';
+            final mimeType = fileMetadata['mimeType'] ?? '';
+            final fileSize = fileMetadata['fileSize'] ?? 0;
+            
+            // Add file message to host's own message storage
+            onMessageReceived?.call(roomCode, {
+              'deviceId': deviceId,
+              'deviceName': deviceName,
+              'content': 'Sent a file: $fileName',
+              'timestamp': DateTime.now().toIso8601String(),
+              'type': 'file',
+              'fileName': fileName,
+              'fileMimeType': mimeType,
+              'fileSize': fileSize,
+              'base64Data': fileMetadata['base64Data'] ?? '',
+            });
+          } catch (e) {
+            print('Error parsing file metadata: $e');
+          }
+          
           // Broadcast to all other connected clients
           hostBroadcastFileShare(roomCode, deviceId, content);
         }

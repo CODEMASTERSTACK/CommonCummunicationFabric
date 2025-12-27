@@ -165,55 +165,59 @@ class _ChatScreenState extends State<ChatScreen> {
             });
           }
         } else if (roomCode == widget.roomCode && type == 'fileshare') {
-          // Handle file share message
-          try {
-            final fileMetadata = jsonDecode(content) as Map<String, dynamic>;
-            final fileName = fileMetadata['fileName'] as String?;
-            final mimeType = fileMetadata['mimeType'] as String?;
-            final fileSize = fileMetadata['fileSize'] as int?;
-            final base64Data = fileMetadata['base64Data'] as String?;
+          // Handle file share message (skip if it's our own file we just sent)
+          final isOwnFile = (deviceId == widget.roomService.currentDeviceId);
+          
+          if (!isOwnFile) {
+            try {
+              final fileMetadata = jsonDecode(content) as Map<String, dynamic>;
+              final fileName = fileMetadata['fileName'] as String?;
+              final mimeType = fileMetadata['mimeType'] as String?;
+              final fileSize = fileMetadata['fileSize'] as int?;
+              final base64Data = fileMetadata['base64Data'] as String?;
 
-            if (fileName != null && base64Data != null) {
-              print(
-                'Processing fileshare: $fileName (${base64Data.length} chars of base64)',
-              );
-              // Decode base64 to binary
-              final fileBytes = base64Decode(base64Data);
+              if (fileName != null && base64Data != null) {
+                print(
+                  'Processing fileshare: $fileName (${base64Data.length} chars of base64)',
+                );
+                // Decode base64 to binary
+                final fileBytes = base64Decode(base64Data);
 
-              // Save file to local storage
-              final savedPath = await _fileService.saveReceivedFile(
-                fileName: fileName,
-                fileBytes: fileBytes,
-              );
+                // Save file to local storage
+                final savedPath = await _fileService.saveReceivedFile(
+                  fileName: fileName,
+                  fileBytes: fileBytes,
+                );
 
-              // Get sender device name
-              final senderName = widget.deviceNameMap[deviceId] ?? deviceId;
+                // Get sender device name
+                final senderName = widget.deviceNameMap[deviceId] ?? deviceId;
 
-              // Add file message to storage
-              widget.messagingService.addMessage(
-                senderDeviceId: deviceId,
-                senderDeviceName: senderName,
-                content: 'Sent a file: $fileName',
-                roomCode: roomCode,
-                type: 'file',
-                fileName: fileName,
-                fileMimeType: mimeType,
-                fileSize: fileSize,
-                localFilePath: savedPath,
-              );
+                // Add file message to storage
+                widget.messagingService.addMessage(
+                  senderDeviceId: deviceId,
+                  senderDeviceName: senderName,
+                  content: 'Sent a file: $fileName',
+                  roomCode: roomCode,
+                  type: 'file',
+                  fileName: fileName,
+                  fileMimeType: mimeType,
+                  fileSize: fileSize,
+                  localFilePath: savedPath,
+                );
 
-              print('File saved to: $savedPath');
+                print('File saved to: $savedPath');
 
-              if (mounted) {
-                setState(() {
-                  _messages = widget.messagingService.getMessagesForRoom(
-                    widget.roomCode,
-                  );
-                });
+                if (mounted) {
+                  setState(() {
+                    _messages = widget.messagingService.getMessagesForRoom(
+                      widget.roomCode,
+                    );
+                  });
+                }
               }
+            } catch (e) {
+              print('Error processing file message: $e');
             }
-          } catch (e) {
-            print('Error processing file message: $e');
           }
         } else if (roomCode == widget.roomCode && type == 'device_joined') {
           // Another device joined, add it to the local room
