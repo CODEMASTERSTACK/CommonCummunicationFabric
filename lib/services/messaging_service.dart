@@ -13,6 +13,11 @@ class MessagingService {
     required String senderDeviceName,
     required String content,
     required String roomCode,
+    String type = 'text',
+    String? fileName,
+    String? fileMimeType,
+    int? fileSize,
+    String? localFilePath,
   }) {
     Message message = Message(
       id: const Uuid().v4(),
@@ -21,6 +26,11 @@ class MessagingService {
       content: content,
       timestamp: DateTime.now(),
       roomCode: roomCode,
+      type: type,
+      fileName: fileName,
+      fileMimeType: fileMimeType,
+      fileSize: fileSize,
+      localFilePath: localFilePath,
     );
 
     _messages.add(message);

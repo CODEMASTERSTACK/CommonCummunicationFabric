@@ -107,7 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
               await widget.networkService.stopListening();
               if (mounted) {
                 setState(() => _isLoading = false);
-                _navigateToChatScreen(code, remoteSocket: socket);
+                await _navigateToChatScreen(code, remoteSocket: socket);
               }
             }
           }
@@ -126,11 +126,13 @@ class _HomeScreenState extends State<HomeScreen> {
         if (success && mounted) {
           connected = true;
           // Track this as a "travel" connection
-          widget.recentConnectionsService.addTravel('Room $code');
-          setState(() => _isLoading = false);
-          Navigator.of(
-            context,
-          ).pushNamed('/chat', arguments: {'roomCode': code});
+          await widget.recentConnectionsService.addTravel('Room $code');
+          if (mounted) {
+            setState(() => _isLoading = false);
+            Navigator.of(
+              context,
+            ).pushNamed('/chat', arguments: {'roomCode': code});
+          }
         }
       }
     } catch (e) {
@@ -145,17 +147,22 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _navigateToChatScreen(String code, {Socket? remoteSocket}) {
+  Future<void> _navigateToChatScreen(
+    String code, {
+    Socket? remoteSocket,
+  }) async {
     // Track as "travel" when joining a room
-    widget.recentConnectionsService.addTravel('Room $code');
-    
-    Navigator.of(context).pushNamed(
-      '/chat',
-      arguments: {
-        'roomCode': code,
-        if (remoteSocket != null) 'remoteSocket': remoteSocket,
-      },
-    );
+    await widget.recentConnectionsService.addTravel('Room $code');
+
+    if (mounted) {
+      Navigator.of(context).pushNamed(
+        '/chat',
+        arguments: {
+          'roomCode': code,
+          if (remoteSocket != null) 'remoteSocket': remoteSocket,
+        },
+      );
+    }
   }
 
   @override
@@ -548,9 +555,9 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Text(
             'Recent Connections',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 16),
           Center(
@@ -575,9 +582,9 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Text(
           'Recent Connections',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 12),
         SizedBox(
@@ -592,7 +599,9 @@ class _HomeScreenState extends State<HomeScreen> {
               final badgeLabel = isVisitor ? 'VISIT' : 'TRAVEL';
 
               return Padding(
-                padding: EdgeInsets.only(right: index == connections.length - 1 ? 0 : 12.0),
+                padding: EdgeInsets.only(
+                  right: index == connections.length - 1 ? 0 : 12.0,
+                ),
                 child: Container(
                   width: 140,
                   padding: const EdgeInsets.all(12.0),
@@ -600,7 +609,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: isDarkMode ? Colors.grey.shade800 : Colors.white,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: isDarkMode ? Colors.grey.shade700 : Colors.grey.shade200,
+                      color: isDarkMode
+                          ? Colors.grey.shade700
+                          : Colors.grey.shade200,
                       width: 1,
                     ),
                   ),
@@ -616,9 +627,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               connection.deviceName,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
                             ),
                           ],
                         ),

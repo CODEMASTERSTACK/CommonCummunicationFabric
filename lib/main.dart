@@ -34,10 +34,12 @@ class _MainAppState extends State<MainApp> {
     _initializeServices();
   }
 
-  void _initializeServices() {
+  Future<void> _initializeServices() async {
     String deviceName = _getDeviceIdentifier();
     _roomService = RoomService(deviceName: deviceName);
     _recentConnectionsService = RecentConnectionsService();
+    // Initialize persistence for recent connections
+    await _recentConnectionsService.initialize();
     _initMessagingAndNetwork(deviceName);
     _deviceName = deviceName;
   }

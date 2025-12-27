@@ -3,11 +3,13 @@ import 'package:intl/intl.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
+import 'package:file_picker/file_picker.dart';
 import '../models/message.dart';
 import '../models/device.dart';
 import '../services/messaging_service.dart';
 import '../services/room_service.dart';
 import '../services/local_network_service.dart';
+import '../services/file_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomCode;
@@ -38,6 +40,8 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _refreshTimer;
   late Set<String>
   _previousDeviceIds; // Track devices to detect disconnects on host
+  final FileService _fileService = FileService();
+  bool _isLoadingFile = false;
 
   @override
   void initState() {
@@ -210,6 +214,124 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
     });
+  }
+
+  Future<void> _pickAndSendFile() async {
+    try {
+      setState(() => _isLoadingFile = true);
+      
+      final result = await FilePicker.platform.pickFiles();
+      
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        final filePath = file.path;
+        
+        if (filePath == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Failed to access file')),
+            );
+          }
+          return;
+        }
+
+        final fileObj = File(filePath);
+        final fileBytes = await fileObj.readAsBytes();
+        final fileName = file.name;
+        final mimeType = _fileService.getMimeType(fileName);
+
+        // Create file message metadata
+        final fileMessage = Message(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          senderDeviceId: widget.roomService.currentDeviceId,
+          senderDeviceName: widget.roomService.currentDeviceName,
+          content: 'Sent a file: $fileName',
+          timestamp: DateTime.now(),
+          roomCode: widget.roomCode,
+          type: 'file',
+          fileName: fileName,
+          fileMimeType: mimeType,
+          fileSize: fileBytes.length,
+        );
+
+        // Add message to local storage
+        widget.messagingService.addMessage(
+          senderDeviceId: fileMessage.senderDeviceId,
+          senderDeviceName: fileMessage.senderDeviceName,
+          content: fileMessage.content,
+          roomCode: widget.roomCode,
+          type: 'file',
+          fileName: fileName,
+          fileMimeType: mimeType,
+          fileSize: fileBytes.length,
+        );
+
+        // Send file metadata and data to other devices
+        await _sendFileToOthers(fileMessage, fileBytes);
+
+        if (mounted) {
+          setState(() {
+            _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('File shared successfully')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error sharing file: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingFile = false);
+      }
+    }
+  }
+
+  Future<void> _sendFileToOthers(Message fileMessage, List<int> fileBytes) async {
+    try {
+      // Protocol: roomCode|file|deviceId|fileName|mimeType|fileSize|[binary data]
+      final metadataJson = jsonEncode({
+        'roomCode': fileMessage.roomCode,
+        'deviceId': fileMessage.senderDeviceId,
+        'fileName': fileMessage.fileName,
+        'mimeType': fileMessage.fileMimeType,
+        'fileSize': fileMessage.fileSize,
+      });
+
+      // If this is a client, send to server
+      if (widget.remoteSocket != null) {
+        try {
+          // Send metadata first
+          widget.remoteSocket!.write('file|metadata|$metadataJson\n');
+          widget.remoteSocket!.flush();
+          
+          // Send file data
+          widget.remoteSocket!.add(fileBytes);
+          widget.remoteSocket!.flush();
+        } catch (e) {
+          print('Error sending file to server: $e');
+        }
+      } else {
+        // If this is a host, broadcast to all clients
+        for (var client in widget.networkService.connectedClients.values) {
+          try {
+            client.write('file|metadata|$metadataJson\n');
+            client.flush();
+            client.add(fileBytes);
+            client.flush();
+          } catch (e) {
+            print('Error broadcasting file to client: $e');
+          }
+        }
+      }
+    } catch (e) {
+      print('Error sending file: $e');
+    }
   }
 
   void _leaveRoom() {
@@ -402,14 +524,18 @@ class _ChatScreenState extends State<ChatScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        message.content,
-                                        style: TextStyle(
-                                          color: isCurrentUser
-                                              ? Colors.white
-                                              : Colors.black,
+                                      // Handle file messages differently
+                                      if (message.type == 'file')
+                                        _buildFileMessageContent(message)
+                                      else
+                                        Text(
+                                          message.content,
+                                          style: TextStyle(
+                                            color: isCurrentUser
+                                                ? Colors.white
+                                                : Colors.black,
+                                          ),
                                         ),
-                                      ),
                                       const SizedBox(height: 4),
                                       Text(
                                         DateFormat(
@@ -443,6 +569,15 @@ class _ChatScreenState extends State<ChatScreen> {
               child: SafeArea(
                 child: Row(
                   children: [
+                    // File picker button
+                    CircleAvatar(
+                      backgroundColor: Colors.green,
+                      child: IconButton(
+                        icon: const Icon(Icons.attach_file, color: Colors.white),
+                        onPressed: _isLoadingFile ? null : _pickAndSendFile,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
                         controller: _messageController,
@@ -457,6 +592,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                         ),
                         maxLines: null,
+                        enabled: !_isLoadingFile,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -464,7 +600,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       backgroundColor: Colors.blue,
                       child: IconButton(
                         icon: const Icon(Icons.send, color: Colors.white),
-                        onPressed: _sendMessage,
+                        onPressed: _isLoadingFile ? null : _sendMessage,
                       ),
                     ),
                   ],
@@ -473,6 +609,93 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildFileMessageContent(Message message) {
+    final isCurrentUser =
+        message.senderDeviceId == widget.roomService.currentDeviceId;
+    final fileName = message.fileName ?? 'Unknown file';
+    final fileSize = message.fileSize ?? 0;
+    final fileSizeStr = FileService.formatFileSize(fileSize);
+
+    return InkWell(
+      onTap: message.localFilePath != null
+          ? () {
+              _openFile(message.localFilePath!);
+            }
+          : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _getFileIcon(message.fileMimeType),
+                color: isCurrentUser ? Colors.white : Colors.blue,
+                size: 24,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fileName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isCurrentUser ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      fileSizeStr,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isCurrentUser
+                            ? Colors.white70
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getFileIcon(String? mimeType) {
+    if (mimeType == null) {
+      return Icons.file_present;
+    }
+    if (mimeType.startsWith('image/')) {
+      return Icons.image;
+    }
+    if (mimeType == 'application/pdf') {
+      return Icons.picture_as_pdf;
+    }
+    if (mimeType.contains('word') || mimeType.contains('document')) {
+      return Icons.description;
+    }
+    if (mimeType.contains('sheet') || mimeType.contains('excel')) {
+      return Icons.table_chart;
+    }
+    return Icons.attach_file;
+  }
+
+  void _openFile(String filePath) {
+    // For demonstration, show a dialog
+    // In production, use plugins like 'open_file' to actually open files
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('File saved at: $filePath'),
+        duration: const Duration(seconds: 3),
       ),
     );
   }

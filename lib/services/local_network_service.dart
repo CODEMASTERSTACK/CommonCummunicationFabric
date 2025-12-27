@@ -19,13 +19,17 @@ class LocalNetworkService {
   onMessageReceived;
   final Function(String deviceId)? onDeviceConnected;
   final Function(String deviceId)? onDeviceDisconnected;
-  final Function(String deviceName)? onVisitorJoined; // Track visitors joining our rooms
+  final Function(String deviceName)?
+  onVisitorJoined; // Track visitors joining our rooms
 
   final RoomService? roomService;
 
   RawDatagramSocket? _announceSocket;
   RawDatagramSocket? _listenSocket;
   Timer? _advertiseTimer;
+
+  /// Get connected clients (for file broadcasting)
+  Map<String, Socket> get connectedClients => _connectedClients;
 
   LocalNetworkService({
     this.onMessageReceived,
