@@ -19,6 +19,7 @@ class LocalNetworkService {
   onMessageReceived;
   final Function(String deviceId)? onDeviceConnected;
   final Function(String deviceId)? onDeviceDisconnected;
+  final Function(String deviceName)? onVisitorJoined; // Track visitors joining our rooms
 
   final RoomService? roomService;
 
@@ -30,6 +31,7 @@ class LocalNetworkService {
     this.onMessageReceived,
     this.onDeviceConnected,
     this.onDeviceDisconnected,
+    this.onVisitorJoined,
     this.roomService,
   });
 
@@ -93,6 +95,8 @@ class LocalNetworkService {
           // remember which room this client joined
           _clientRooms[deviceId] = roomCode;
           onDeviceConnected?.call(deviceId);
+          // Track visitor joining our room
+          onVisitorJoined?.call(content);
 
           // If we have a RoomService (we are host), send current room membership
           // to the newly connected client first so it learns about the host and

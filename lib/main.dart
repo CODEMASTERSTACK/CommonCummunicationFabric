@@ -6,6 +6,7 @@ import 'screens/chat_screen.dart';
 import 'services/room_service.dart';
 import 'services/messaging_service.dart';
 import 'services/local_network_service.dart';
+import 'services/recent_connections_service.dart';
 
 void main() {
   runApp(const MainApp());
@@ -22,6 +23,7 @@ class _MainAppState extends State<MainApp> {
   late RoomService _roomService;
   late MessagingService _messagingService;
   late LocalNetworkService _networkService;
+  late RecentConnectionsService _recentConnectionsService;
   String? _deviceName;
   // Store device names for disconnect notifications
   final Map<String, String> _deviceNameMap = {};
@@ -35,6 +37,7 @@ class _MainAppState extends State<MainApp> {
   void _initializeServices() {
     String deviceName = _getDeviceIdentifier();
     _roomService = RoomService(deviceName: deviceName);
+    _recentConnectionsService = RecentConnectionsService();
     _initMessagingAndNetwork(deviceName);
     _deviceName = deviceName;
   }
@@ -67,6 +70,11 @@ class _MainAppState extends State<MainApp> {
       onDeviceDisconnected: (deviceId) {
         // Store for later use in ChatScreen
         // (ChatScreen will handle the UI popup on host side)
+      },
+
+      onVisitorJoined: (deviceName) {
+        // Track visitors joining our rooms
+        _recentConnectionsService.addVisitor(deviceName);
       },
     );
   }
@@ -105,6 +113,7 @@ class _MainAppState extends State<MainApp> {
         : HomeScreen(
             roomService: _roomService,
             networkService: _networkService,
+            recentConnectionsService: _recentConnectionsService,
           );
 
     return MaterialApp(

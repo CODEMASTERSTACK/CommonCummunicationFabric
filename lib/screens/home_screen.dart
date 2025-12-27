@@ -3,15 +3,18 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/room_service.dart';
 import '../services/local_network_service.dart';
+import '../services/recent_connections_service.dart';
 
 class HomeScreen extends StatefulWidget {
   final RoomService roomService;
   final LocalNetworkService networkService;
+  final RecentConnectionsService recentConnectionsService;
 
   const HomeScreen({
     Key? key,
     required this.roomService,
     required this.networkService,
+    required this.recentConnectionsService,
   }) : super(key: key);
 
   @override
@@ -104,13 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
               await widget.networkService.stopListening();
               if (mounted) {
                 setState(() => _isLoading = false);
-                Navigator.of(context).pushNamed(
-                  '/chat',
-                  arguments: {
-                    'roomCode': code,
-                    'remoteSocket': socket, // Pass socket to ChatScreen
-                  },
-                );
+                _navigateToChatScreen(code, remoteSocket: socket);
               }
             }
           }
@@ -128,6 +125,8 @@ class _HomeScreenState extends State<HomeScreen> {
         );
         if (success && mounted) {
           connected = true;
+          // Track this as a "travel" connection
+          widget.recentConnectionsService.addTravel('Room $code');
           setState(() => _isLoading = false);
           Navigator.of(
             context,
@@ -144,6 +143,19 @@ class _HomeScreenState extends State<HomeScreen> {
         _errorMessage = 'Room code not found or expired';
       });
     }
+  }
+
+  void _navigateToChatScreen(String code, {Socket? remoteSocket}) {
+    // Track as "travel" when joining a room
+    widget.recentConnectionsService.addTravel('Room $code');
+    
+    Navigator.of(context).pushNamed(
+      '/chat',
+      arguments: {
+        'roomCode': code,
+        if (remoteSocket != null) 'remoteSocket': remoteSocket,
+      },
+    );
   }
 
   @override
@@ -411,6 +423,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
+              const SizedBox(height: 40),
+
+              // Recent Connections Section
+              _buildRecentConnectionsSection(context, isDarkMode),
             ],
           ),
         ),
@@ -520,6 +536,120 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildRecentConnectionsSection(BuildContext context, bool isDarkMode) {
+    final connections = widget.recentConnectionsService.getConnections();
+
+    if (connections.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Recent Connections',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32.0),
+              child: Text(
+                'No recent connections yet',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: isDarkMode
+                      ? Colors.grey.shade500
+                      : Colors.grey.shade600,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Recent Connections',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 90,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: connections.length,
+            itemBuilder: (context, index) {
+              final connection = connections[index];
+              final isVisitor = connection.type == 'visit';
+              final badgeColor = isVisitor ? Colors.green : Colors.orange;
+              final badgeLabel = isVisitor ? 'VISIT' : 'TRAVEL';
+
+              return Padding(
+                padding: EdgeInsets.only(right: index == connections.length - 1 ? 0 : 12.0),
+                child: Container(
+                  width: 140,
+                  padding: const EdgeInsets.all(12.0),
+                  decoration: BoxDecoration(
+                    color: isDarkMode ? Colors.grey.shade800 : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDarkMode ? Colors.grey.shade700 : Colors.grey.shade200,
+                      width: 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              connection.deviceName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8.0,
+                          vertical: 4.0,
+                        ),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          badgeLabel,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: badgeColor,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
