@@ -97,7 +97,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _listenForRemoteMessages() {
     widget.remoteSocket!.listen(
-      (List<int> data) {
+      (List<int> data) async {
         try {
           String message = utf8.decode(data).trim();
           // Protocol: roomCode|type|deviceId|content
@@ -121,6 +121,52 @@ class _ChatScreenState extends State<ChatScreen> {
                     widget.roomCode,
                   );
                 });
+              }
+            } else if (roomCode == widget.roomCode && type == 'fileshare') {
+              // Handle file share message
+              try {
+                final fileMetadata = jsonDecode(content) as Map<String, dynamic>;
+                final fileName = fileMetadata['fileName'] as String?;
+                final mimeType = fileMetadata['mimeType'] as String?;
+                final fileSize = fileMetadata['fileSize'] as int?;
+                final base64Data = fileMetadata['base64Data'] as String?;
+
+                if (fileName != null && base64Data != null) {
+                  // Decode base64 to binary
+                  final fileBytes = base64Decode(base64Data);
+                  
+                  // Save file to local storage
+                  final savedPath = await _fileService.saveReceivedFile(
+                    fileName: fileName,
+                    fileBytes: fileBytes,
+                  );
+
+                  // Get sender device name
+                  final senderName = widget.deviceNameMap[deviceId] ?? deviceId;
+
+                  // Add file message to storage
+                  widget.messagingService.addMessage(
+                    senderDeviceId: deviceId,
+                    senderDeviceName: senderName,
+                    content: 'Sent a file: $fileName',
+                    roomCode: roomCode,
+                    type: 'file',
+                    fileName: fileName,
+                    fileMimeType: mimeType,
+                    fileSize: fileSize,
+                    localFilePath: savedPath,
+                  );
+
+                  if (mounted) {
+                    setState(() {
+                      _messages = widget.messagingService.getMessagesForRoom(
+                        widget.roomCode,
+                      );
+                    });
+                  }
+                }
+              } catch (e) {
+                print('Error processing file message: $e');
               }
             } else if (roomCode == widget.roomCode && type == 'device_joined') {
               // Another device joined, add it to the local room
@@ -294,40 +340,38 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _sendFileToOthers(Message fileMessage, List<int> fileBytes) async {
     try {
-      // Protocol: roomCode|file|deviceId|fileName|mimeType|fileSize|[binary data]
-      final metadataJson = jsonEncode({
-        'roomCode': fileMessage.roomCode,
-        'deviceId': fileMessage.senderDeviceId,
+      // Encode file data as base64 to send over text-based socket
+      final base64FileData = base64Encode(fileBytes);
+      
+      // Create file metadata object
+      final fileMetadata = {
         'fileName': fileMessage.fileName,
         'mimeType': fileMessage.fileMimeType,
         'fileSize': fileMessage.fileSize,
-      });
+        'base64Data': base64FileData,
+      };
+      
+      final metadataJson = jsonEncode(fileMetadata);
 
       // If this is a client, send to server
       if (widget.remoteSocket != null) {
         try {
-          // Send metadata first
-          widget.remoteSocket!.write('file|metadata|$metadataJson\n');
+          // Use standard fileshare protocol
+          final message = '${fileMessage.roomCode}|fileshare|${fileMessage.senderDeviceId}|$metadataJson';
+          widget.remoteSocket!.write('$message\n');
           widget.remoteSocket!.flush();
-          
-          // Send file data
-          widget.remoteSocket!.add(fileBytes);
-          widget.remoteSocket!.flush();
+          print('File sent to server');
         } catch (e) {
           print('Error sending file to server: $e');
         }
       } else {
-        // If this is a host, broadcast to all clients
-        for (var client in widget.networkService.connectedClients.values) {
-          try {
-            client.write('file|metadata|$metadataJson\n');
-            client.flush();
-            client.add(fileBytes);
-            client.flush();
-          } catch (e) {
-            print('Error broadcasting file to client: $e');
-          }
-        }
+        // If this is a host, broadcast to all clients using specialized method
+        widget.networkService.hostBroadcastFileShare(
+          fileMessage.roomCode,
+          fileMessage.senderDeviceId,
+          metadataJson,
+        );
+        print('File broadcasted to all clients');
       }
     } catch (e) {
       print('Error sending file: $e');

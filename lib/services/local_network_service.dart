@@ -149,6 +149,12 @@ class LocalNetworkService {
             'timestamp': DateTime.now().toIso8601String(),
           });
           _broadcastMessage(roomCode, deviceId, content);
+        } else if (type == 'fileshare') {
+          // Handle file share message from client
+          final deviceName = _deviceNames[deviceId] ?? deviceId;
+          print('Received fileshare from $deviceName');
+          // Broadcast to all other connected clients
+          hostBroadcastFileShare(roomCode, deviceId, content);
         }
       }
     } catch (e) {
@@ -234,6 +240,19 @@ class LocalNetworkService {
         client.flush();
       } catch (e) {
         print('Error broadcasting host message: $e');
+      }
+    }
+  }
+
+  /// Host broadcasts a file share message to all connected clients
+  void hostBroadcastFileShare(String roomCode, String deviceId, String fileMetadata) {
+    String msg = '$roomCode|fileshare|$deviceId|$fileMetadata';
+    for (var client in _connectedClients.values) {
+      try {
+        client.write('$msg\n');
+        client.flush();
+      } catch (e) {
+        print('Error broadcasting file to client: $e');
       }
     }
   }
