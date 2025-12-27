@@ -42,6 +42,9 @@ class _ChatScreenState extends State<ChatScreen> {
   _previousDeviceIds; // Track devices to detect disconnects on host
   final FileService _fileService = FileService();
   bool _isLoadingFile = false;
+  
+  // File transfer state
+  StringBuffer _messageBuffer = StringBuffer(); // Buffer for incomplete messages
 
   @override
   void initState() {
@@ -99,114 +102,25 @@ class _ChatScreenState extends State<ChatScreen> {
     widget.remoteSocket!.listen(
       (List<int> data) async {
         try {
-          String message = utf8.decode(data).trim();
-          // Protocol: roomCode|type|deviceId|content
-          final parts = message.split('|');
-          if (parts.length >= 4) {
-            final roomCode = parts[0];
-            final type = parts[1];
-            final deviceId = parts[2];
-            final content = parts.sublist(3).join('|');
-
-            if (roomCode == widget.roomCode && type == 'message') {
-              widget.messagingService.addMessage(
-                senderDeviceId: deviceId,
-                senderDeviceName: deviceId,
-                content: content,
-                roomCode: roomCode,
-              );
-              if (mounted) {
-                setState(() {
-                  _messages = widget.messagingService.getMessagesForRoom(
-                    widget.roomCode,
-                  );
-                });
-              }
-            } else if (roomCode == widget.roomCode && type == 'fileshare') {
-              // Handle file share message
-              try {
-                final fileMetadata = jsonDecode(content) as Map<String, dynamic>;
-                final fileName = fileMetadata['fileName'] as String?;
-                final mimeType = fileMetadata['mimeType'] as String?;
-                final fileSize = fileMetadata['fileSize'] as int?;
-                final base64Data = fileMetadata['base64Data'] as String?;
-
-                if (fileName != null && base64Data != null) {
-                  // Decode base64 to binary
-                  final fileBytes = base64Decode(base64Data);
-                  
-                  // Save file to local storage
-                  final savedPath = await _fileService.saveReceivedFile(
-                    fileName: fileName,
-                    fileBytes: fileBytes,
-                  );
-
-                  // Get sender device name
-                  final senderName = widget.deviceNameMap[deviceId] ?? deviceId;
-
-                  // Add file message to storage
-                  widget.messagingService.addMessage(
-                    senderDeviceId: deviceId,
-                    senderDeviceName: senderName,
-                    content: 'Sent a file: $fileName',
-                    roomCode: roomCode,
-                    type: 'file',
-                    fileName: fileName,
-                    fileMimeType: mimeType,
-                    fileSize: fileSize,
-                    localFilePath: savedPath,
-                  );
-
-                  if (mounted) {
-                    setState(() {
-                      _messages = widget.messagingService.getMessagesForRoom(
-                        widget.roomCode,
-                      );
-                    });
-                  }
-                }
-              } catch (e) {
-                print('Error processing file message: $e');
-              }
-            } else if (roomCode == widget.roomCode && type == 'device_joined') {
-              // Another device joined, add it to the local room
-              final room = widget.roomService.getCurrentRoom();
-              if (room != null) {
-                final alreadyExists = room.connectedDevices.any(
-                  (d) => d.id == deviceId,
-                );
-                if (!alreadyExists) {
-                  room.connectedDevices.add(
-                    Device(
-                      id: deviceId,
-                      name: content,
-                      type: 'phone',
-                      connectedAt: DateTime.now(),
-                      isActive: true,
-                    ),
-                  );
-                  if (mounted) {
-                    setState(() {}); // Trigger rebuild to update device list
-                  }
-                }
-              }
-            } else if (roomCode == widget.roomCode && type == 'device_left') {
-              // A device left the room; remove from local list and show a popup
-              final room = widget.roomService.getCurrentRoom();
-              if (room != null) {
-                room.connectedDevices.removeWhere((d) => d.id == deviceId);
-                if (mounted) {
-                  setState(() {});
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('${content} left the room'),
-                      behavior: SnackBarBehavior.floating,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                }
-              }
-            }
+          // Append incoming data to buffer
+          _messageBuffer.write(utf8.decode(data));
+          
+          // Process complete messages (lines ending with \n)
+          String bufferContent = _messageBuffer.toString();
+          List<String> lines = bufferContent.split('\n');
+          
+          // Keep the last incomplete line in the buffer
+          _messageBuffer.clear();
+          if (!bufferContent.endsWith('\n') && lines.isNotEmpty) {
+            _messageBuffer.write(lines.last);
+            lines = lines.sublist(0, lines.length - 1);
+          }
+          
+          // Process all complete messages
+          for (String message in lines) {
+            if (message.trim().isEmpty) continue;
+            
+            await _processReceivedMessage(message);
           }
         } catch (e) {
           print('Error receiving message: $e');
@@ -223,6 +137,124 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       },
     );
+  }
+
+  Future<void> _processReceivedMessage(String message) async {
+    try {
+      // Protocol: roomCode|type|deviceId|content
+      final parts = message.split('|');
+      if (parts.length >= 4) {
+        final roomCode = parts[0];
+        final type = parts[1];
+        final deviceId = parts[2];
+        final content = parts.sublist(3).join('|');
+
+        if (roomCode == widget.roomCode && type == 'message') {
+          widget.messagingService.addMessage(
+            senderDeviceId: deviceId,
+            senderDeviceName: deviceId,
+            content: content,
+            roomCode: roomCode,
+          );
+          if (mounted) {
+            setState(() {
+              _messages = widget.messagingService.getMessagesForRoom(
+                widget.roomCode,
+              );
+            });
+          }
+        } else if (roomCode == widget.roomCode && type == 'fileshare') {
+          // Handle file share message
+          try {
+            final fileMetadata = jsonDecode(content) as Map<String, dynamic>;
+            final fileName = fileMetadata['fileName'] as String?;
+            final mimeType = fileMetadata['mimeType'] as String?;
+            final fileSize = fileMetadata['fileSize'] as int?;
+            final base64Data = fileMetadata['base64Data'] as String?;
+
+            if (fileName != null && base64Data != null) {
+              print('Processing fileshare: $fileName (${base64Data.length} chars of base64)');
+              // Decode base64 to binary
+              final fileBytes = base64Decode(base64Data);
+              
+              // Save file to local storage
+              final savedPath = await _fileService.saveReceivedFile(
+                fileName: fileName,
+                fileBytes: fileBytes,
+              );
+
+              // Get sender device name
+              final senderName = widget.deviceNameMap[deviceId] ?? deviceId;
+
+              // Add file message to storage
+              widget.messagingService.addMessage(
+                senderDeviceId: deviceId,
+                senderDeviceName: senderName,
+                content: 'Sent a file: $fileName',
+                roomCode: roomCode,
+                type: 'file',
+                fileName: fileName,
+                fileMimeType: mimeType,
+                fileSize: fileSize,
+                localFilePath: savedPath,
+              );
+
+              print('File saved to: $savedPath');
+
+              if (mounted) {
+                setState(() {
+                  _messages = widget.messagingService.getMessagesForRoom(
+                    widget.roomCode,
+                  );
+                });
+              }
+            }
+          } catch (e) {
+            print('Error processing file message: $e');
+          }
+        } else if (roomCode == widget.roomCode && type == 'device_joined') {
+          // Another device joined, add it to the local room
+          final room = widget.roomService.getCurrentRoom();
+          if (room != null) {
+            final alreadyExists = room.connectedDevices.any(
+              (d) => d.id == deviceId,
+            );
+            if (!alreadyExists) {
+              room.connectedDevices.add(
+                Device(
+                  id: deviceId,
+                  name: content,
+                  type: 'phone',
+                  connectedAt: DateTime.now(),
+                  isActive: true,
+                ),
+              );
+              if (mounted) {
+                setState(() {}); // Trigger rebuild to update device list
+              }
+            }
+          }
+        } else if (roomCode == widget.roomCode && type == 'device_left') {
+          // A device left the room; remove from local list and show a popup
+          final room = widget.roomService.getCurrentRoom();
+          if (room != null) {
+            room.connectedDevices.removeWhere((d) => d.id == deviceId);
+            if (mounted) {
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${content} left the room'),
+                  behavior: SnackBarBehavior.floating,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('Error processing received message: $e');
+    }
   }
 
   void _sendMessage() {
