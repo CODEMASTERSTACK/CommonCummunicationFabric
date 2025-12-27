@@ -14,6 +14,7 @@ class LocalNetworkService {
   final Map<String, Socket> _connectedClients = {};
   final Map<String, String> _deviceNames = {};
   final Map<String, String> _clientRooms = {}; // deviceId -> roomCode
+  final Map<String, StringBuffer> _clientMessageBuffers = {}; // Per-client message buffers
 
   final Function(String roomCode, Map<String, dynamic> message)?
   onMessageReceived;
@@ -59,22 +60,49 @@ class LocalNetworkService {
   }
 
   void _handleClientConnection(Socket client, String deviceName) {
+    // Create a message buffer for this client
+    String clientKey = '${client.remoteAddress.address}:${client.remotePort}';
+    _clientMessageBuffers[clientKey] = StringBuffer();
+
     client.listen(
       (List<int> data) {
         try {
-          String message = utf8.decode(data).trim();
-          _processIncomingMessage(message, client);
+          String chunk = utf8.decode(data);
+          
+          // Add chunk to client's message buffer
+          StringBuffer buffer = _clientMessageBuffers[clientKey]!;
+          buffer.write(chunk);
+          
+          // Process complete messages (delimited by \n)
+          String bufferedData = buffer.toString();
+          List<String> messages = bufferedData.split('\n');
+          
+          // Last element might be incomplete, keep it in buffer
+          for (int i = 0; i < messages.length - 1; i++) {
+            String message = messages[i].trim();
+            if (message.isNotEmpty) {
+              _processIncomingMessage(message, client);
+            }
+          }
+          
+          // Keep the last incomplete message (or empty string) in buffer
+          buffer.clear();
+          if (messages.isNotEmpty && messages.last.isNotEmpty) {
+            buffer.write(messages.last);
+          }
         } catch (e) {
           print('Error processing message: $e');
         }
       },
       onError: (error) {
-        // Handle disconnect
+        // Handle disconnect and clean up buffer
+        _clientMessageBuffers.remove(clientKey);
         _handleClientDisconnect(client);
         client.close();
       },
       onDone: () {
-        // Client closed connection
+        // Client closed connection - clean up buffer
+        _clientMessageBuffers.remove(clientKey);
         _handleClientDisconnect(client);
         client.close();
       },
@@ -245,7 +273,11 @@ class LocalNetworkService {
   }
 
   /// Host broadcasts a file share message to all connected clients
-  void hostBroadcastFileShare(String roomCode, String deviceId, String fileMetadata) {
+  void hostBroadcastFileShare(
+    String roomCode,
+    String deviceId,
+    String fileMetadata,
+  ) {
     String msg = '$roomCode|fileshare|$deviceId|$fileMetadata';
     for (var client in _connectedClients.values) {
       try {

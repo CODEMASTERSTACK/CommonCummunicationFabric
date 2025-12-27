@@ -42,9 +42,10 @@ class _ChatScreenState extends State<ChatScreen> {
   _previousDeviceIds; // Track devices to detect disconnects on host
   final FileService _fileService = FileService();
   bool _isLoadingFile = false;
-  
+
   // File transfer state
-  StringBuffer _messageBuffer = StringBuffer(); // Buffer for incomplete messages
+  StringBuffer _messageBuffer =
+      StringBuffer(); // Buffer for incomplete messages
 
   @override
   void initState() {
@@ -104,22 +105,22 @@ class _ChatScreenState extends State<ChatScreen> {
         try {
           // Append incoming data to buffer
           _messageBuffer.write(utf8.decode(data));
-          
+
           // Process complete messages (lines ending with \n)
           String bufferContent = _messageBuffer.toString();
           List<String> lines = bufferContent.split('\n');
-          
+
           // Keep the last incomplete line in the buffer
           _messageBuffer.clear();
           if (!bufferContent.endsWith('\n') && lines.isNotEmpty) {
             _messageBuffer.write(lines.last);
             lines = lines.sublist(0, lines.length - 1);
           }
-          
+
           // Process all complete messages
           for (String message in lines) {
             if (message.trim().isEmpty) continue;
-            
+
             await _processReceivedMessage(message);
           }
         } catch (e) {
@@ -173,10 +174,12 @@ class _ChatScreenState extends State<ChatScreen> {
             final base64Data = fileMetadata['base64Data'] as String?;
 
             if (fileName != null && base64Data != null) {
-              print('Processing fileshare: $fileName (${base64Data.length} chars of base64)');
+              print(
+                'Processing fileshare: $fileName (${base64Data.length} chars of base64)',
+              );
               // Decode base64 to binary
               final fileBytes = base64Decode(base64Data);
-              
+
               // Save file to local storage
               final savedPath = await _fileService.saveReceivedFile(
                 fileName: fileName,
@@ -297,13 +300,13 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _pickAndSendFile() async {
     try {
       setState(() => _isLoadingFile = true);
-      
+
       final result = await FilePicker.platform.pickFiles();
-      
+
       if (result != null && result.files.isNotEmpty) {
         final file = result.files.first;
         final filePath = file.path;
-        
+
         if (filePath == null) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -349,7 +352,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
         if (mounted) {
           setState(() {
-            _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
+            _messages = widget.messagingService.getMessagesForRoom(
+              widget.roomCode,
+            );
           });
 
           ScaffoldMessenger.of(context).showSnackBar(
@@ -359,9 +364,9 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error sharing file: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error sharing file: $e')));
       }
     } finally {
       if (mounted) {
@@ -370,11 +375,14 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _sendFileToOthers(Message fileMessage, List<int> fileBytes) async {
+  Future<void> _sendFileToOthers(
+    Message fileMessage,
+    List<int> fileBytes,
+  ) async {
     try {
       // Encode file data as base64 to send over text-based socket
       final base64FileData = base64Encode(fileBytes);
-      
+
       // Create file metadata object
       final fileMetadata = {
         'fileName': fileMessage.fileName,
@@ -382,14 +390,15 @@ class _ChatScreenState extends State<ChatScreen> {
         'fileSize': fileMessage.fileSize,
         'base64Data': base64FileData,
       };
-      
+
       final metadataJson = jsonEncode(fileMetadata);
 
       // If this is a client, send to server
       if (widget.remoteSocket != null) {
         try {
           // Use standard fileshare protocol
-          final message = '${fileMessage.roomCode}|fileshare|${fileMessage.senderDeviceId}|$metadataJson';
+          final message =
+              '${fileMessage.roomCode}|fileshare|${fileMessage.senderDeviceId}|$metadataJson';
           widget.remoteSocket!.write('$message\n');
           widget.remoteSocket!.flush();
           print('File sent to server');
@@ -649,7 +658,10 @@ class _ChatScreenState extends State<ChatScreen> {
                     CircleAvatar(
                       backgroundColor: Colors.green,
                       child: IconButton(
-                        icon: const Icon(Icons.attach_file, color: Colors.white),
+                        icon: const Icon(
+                          Icons.attach_file,
+                          color: Colors.white,
+                        ),
                         onPressed: _isLoadingFile ? null : _pickAndSendFile,
                       ),
                     ),

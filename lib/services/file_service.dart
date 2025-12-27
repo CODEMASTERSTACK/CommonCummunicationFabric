@@ -9,11 +9,11 @@ class FileService {
   Future<Directory> getSharedFilesDirectory() async {
     final appDocDir = await getApplicationDocumentsDirectory();
     final sharedFilesDir = Directory('${appDocDir.path}/$_fileDirectoryName');
-    
+
     if (!await sharedFilesDir.exists()) {
       await sharedFilesDir.create(recursive: true);
     }
-    
+
     return sharedFilesDir;
   }
 
@@ -25,7 +25,7 @@ class FileService {
     try {
       final dir = await getSharedFilesDirectory();
       final filePath = '${dir.path}/$fileName';
-      
+
       // If file exists, add timestamp to make it unique
       File targetFile = File(filePath);
       if (await targetFile.exists()) {
@@ -35,7 +35,7 @@ class FileService {
         final newFileName = '${nameWithoutExt}_$timestamp.$ext';
         targetFile = File('${dir.path}/$newFileName');
       }
-      
+
       await targetFile.writeAsBytes(fileBytes);
       return targetFile.path;
     } catch (e) {
