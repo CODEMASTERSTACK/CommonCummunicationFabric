@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:uuid/uuid.dart';
 import 'room_service.dart';
+import 'file_service.dart';
 import '../models/room.dart';
 
 class LocalNetworkService {
@@ -24,6 +25,7 @@ class LocalNetworkService {
   onVisitorJoined; // Track visitors joining our rooms
 
   final RoomService? roomService;
+  final FileService fileService;
 
   RawDatagramSocket? _announceSocket;
   RawDatagramSocket? _listenSocket;
@@ -38,6 +40,7 @@ class LocalNetworkService {
     this.onDeviceDisconnected,
     this.onVisitorJoined,
     this.roomService,
+    required this.fileService,
   });
 
   /// Start TCP server on this device
@@ -65,7 +68,7 @@ class LocalNetworkService {
     _clientMessageBuffers[clientKey] = StringBuffer();
 
     client.listen(
-      (List<int> data) {
+      (List<int> data) async {
         try {
           String chunk = utf8.decode(data);
           
@@ -81,7 +84,7 @@ class LocalNetworkService {
           for (int i = 0; i < messages.length - 1; i++) {
             String message = messages[i].trim();
             if (message.isNotEmpty) {
-              _processIncomingMessage(message, client);
+              await _processIncomingMessage(message, client);
             }
           }
           
@@ -109,7 +112,7 @@ class LocalNetworkService {
     );
   }
 
-  void _processIncomingMessage(String message, Socket client) {
+  Future<void> _processIncomingMessage(String message, Socket client) async {
     try {
       // Protocol: roomCode|type|deviceId|content
       List<String> parts = message.split('|');
@@ -188,8 +191,24 @@ class LocalNetworkService {
             final fileName = fileMetadata['fileName'] ?? 'unknown';
             final mimeType = fileMetadata['mimeType'] ?? '';
             final fileSize = fileMetadata['fileSize'] ?? 0;
+            final base64Data = fileMetadata['base64Data'] ?? '';
             
-            // Add file message to host's own message storage
+            // Decode and save the file if we have data
+            String? savedPath;
+            if (base64Data.isNotEmpty) {
+              try {
+                final fileBytes = base64Decode(base64Data);
+                savedPath = await fileService.saveReceivedFile(
+                  fileName: fileName,
+                  fileBytes: fileBytes,
+                );
+                print('File saved to: $savedPath');
+              } catch (e) {
+                print('Error saving file: $e');
+              }
+            }
+            
+            // Add file message to host's own message storage with the saved path
             onMessageReceived?.call(roomCode, {
               'deviceId': deviceId,
               'deviceName': deviceName,
@@ -199,7 +218,7 @@ class LocalNetworkService {
               'fileName': fileName,
               'fileMimeType': mimeType,
               'fileSize': fileSize,
-              'base64Data': fileMetadata['base64Data'] ?? '',
+              'localFilePath': savedPath,
             });
           } catch (e) {
             print('Error parsing file metadata: $e');

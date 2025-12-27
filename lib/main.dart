@@ -7,6 +7,7 @@ import 'services/room_service.dart';
 import 'services/messaging_service.dart';
 import 'services/local_network_service.dart';
 import 'services/recent_connections_service.dart';
+import 'services/file_service.dart';
 
 void main() {
   runApp(const MainApp());
@@ -24,6 +25,7 @@ class _MainAppState extends State<MainApp> {
   late MessagingService _messagingService;
   late LocalNetworkService _networkService;
   late RecentConnectionsService _recentConnectionsService;
+  late FileService _fileService;
   String? _deviceName;
   // Store device names for disconnect notifications
   final Map<String, String> _deviceNameMap = {};
@@ -46,9 +48,11 @@ class _MainAppState extends State<MainApp> {
 
   void _initMessagingAndNetwork(String deviceName) {
     _messagingService = MessagingService();
+    _fileService = FileService();
 
     _networkService = LocalNetworkService(
       roomService: _roomService,
+      fileService: _fileService,
       onMessageReceived: (roomCode, message) {
         try {
           final devId = message['deviceId'] as String;
@@ -61,6 +65,11 @@ class _MainAppState extends State<MainApp> {
             senderDeviceName: devName,
             content: message['content'] as String,
             roomCode: roomCode,
+            type: (message['type'] as String?) ?? 'message',
+            fileName: message['fileName'] as String?,
+            fileMimeType: message['fileMimeType'] as String?,
+            fileSize: message['fileSize'] as int?,
+            localFilePath: message['localFilePath'] as String?,
           );
         } catch (_) {}
       },
