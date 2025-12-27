@@ -54,6 +54,21 @@ class _ChatScreenState extends State<ChatScreen> {
       {}; // fileId -> FileTransfer for receiving
   final Map<String, double> _outgoingProgress =
       {}; // fileId -> upload progress (0.0 to 1.0)
+    Future<void> _remoteWriteQueue = Future.value();
+
+    Future<void> _enqueueRemoteWrite(String message) {
+      final prev = _remoteWriteQueue;
+      final next = prev.then((_) async {
+        try {
+          widget.remoteSocket!.write(message);
+          await widget.remoteSocket!.flush();
+        } catch (e) {
+          print('Remote socket write error: $e');
+        }
+      });
+      _remoteWriteQueue = next.catchError((_) {});
+      return next;
+    }
 
   @override
   void initState() {

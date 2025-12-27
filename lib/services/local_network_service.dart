@@ -21,6 +21,7 @@ class LocalNetworkService {
       {}; // fileId -> transfer metadata
   final Map<String, Map<int, List<int>>> _incomingFileChunks =
       {}; // fileId -> chunks
+  final Map<Socket, Future<void>> _writeQueues = {};
 
   final Function(String roomCode, Map<String, dynamic> message)?
   onMessageReceived;
@@ -38,6 +39,23 @@ class LocalNetworkService {
 
   /// Get connected clients (for file broadcasting)
   Map<String, Socket> get connectedClients => _connectedClients;
+
+  /// Enqueue writes to a socket to avoid concurrent addStream/write conflicts
+  Future<void> _enqueueWrite(Socket client, String data) {
+    final prev = _writeQueues[client] ?? Future.value();
+    final next = prev.then((_) async {
+      try {
+        client.write(data);
+        await client.flush();
+      } catch (e) {
+        // write error - log and continue
+        print('Socket write error: $e');
+      }
+    });
+    // store the future chain
+    _writeQueues[client] = next.catchError((_) {});
+    return next;
+  }
 
   LocalNetworkService({
     this.onMessageReceived,
@@ -147,8 +165,7 @@ class LocalNetworkService {
             if (existingRoom != null) {
               for (var d in existingRoom.connectedDevices) {
                 try {
-                  client.write('$roomCode|device_joined|${d.id}|${d.name}\n');
-                  client.flush();
+                  _enqueueWrite(client, '$roomCode|device_joined|${d.id}|${d.name}\n');
                 } catch (e) {
                   // ignore
                 }
@@ -337,8 +354,7 @@ class LocalNetworkService {
     String messageData = '$roomCode|message|$senderDeviceId|$content';
     for (var client in _connectedClients.values) {
       try {
-        client.write('$messageData\n');
-        client.flush();
+        _enqueueWrite(client, '$messageData\n');
       } catch (e) {
         print('Error broadcasting message: $e');
       }
@@ -353,8 +369,7 @@ class LocalNetworkService {
     String msg = '$roomCode|device_joined|$deviceId|$deviceName';
     for (var client in _connectedClients.values) {
       try {
-        client.write('$msg\n');
-        client.flush();
+        _enqueueWrite(client, '$msg\n');
       } catch (e) {
         // ignore
       }
@@ -369,8 +384,7 @@ class LocalNetworkService {
     String msg = '$roomCode|device_left|$deviceId|$deviceName';
     for (var client in _connectedClients.values) {
       try {
-        client.write('$msg\n');
-        client.flush();
+        _enqueueWrite(client, '$msg\n');
       } catch (e) {
         // ignore
       }
@@ -388,6 +402,7 @@ class LocalNetworkService {
       final deviceName = _deviceNames.remove(deviceId) ?? deviceId;
       final roomCode = _clientRooms.remove(deviceId);
       _connectedClients.remove(deviceId);
+      _writeQueues.remove(client);
       onDeviceDisconnected?.call(deviceId);
       if (roomService != null && roomCode != null) {
         roomService!.removeDeviceFromRoom(roomCode, deviceId);
@@ -403,8 +418,7 @@ class LocalNetworkService {
     String msg = '$roomCode|message|$deviceId|$message';
     for (var client in _connectedClients.values) {
       try {
-        client.write('$msg\n');
-        client.flush();
+        _enqueueWrite(client, '$msg\n');
       } catch (e) {
         print('Error broadcasting host message: $e');
       }
@@ -420,8 +434,7 @@ class LocalNetworkService {
     String msg = '$roomCode|fileshare|$deviceId|$fileMetadata';
     for (var client in _connectedClients.values) {
       try {
-        client.write('$msg\n');
-        client.flush();
+        _enqueueWrite(client, '$msg\n');
       } catch (e) {
         print('Error broadcasting file to client: $e');
       }
@@ -437,8 +450,7 @@ class LocalNetworkService {
     String msg = '$roomCode|fileshare_start|$deviceId|$metadata';
     for (var client in _connectedClients.values) {
       try {
-        client.write('$msg\n');
-        client.flush();
+        _enqueueWrite(client, '$msg\n');
       } catch (e) {
         print('Error broadcasting fileshare_start to client: $e');
       }
@@ -454,8 +466,7 @@ class LocalNetworkService {
     String msg = '$roomCode|fileshare_chunk|$deviceId|$chunkMetadata';
     for (var client in _connectedClients.values) {
       try {
-        client.write('$msg\n');
-        client.flush();
+        _enqueueWrite(client, '$msg\n');
       } catch (e) {
         print('Error broadcasting fileshare_chunk to client: $e');
       }
@@ -471,8 +482,7 @@ class LocalNetworkService {
     String msg = '$roomCode|fileshare_end|$deviceId|$fileId';
     for (var client in _connectedClients.values) {
       try {
-        client.write('$msg\n');
-        client.flush();
+        _enqueueWrite(client, '$msg\n');
       } catch (e) {
         print('Error broadcasting fileshare_end to client: $e');
       }
