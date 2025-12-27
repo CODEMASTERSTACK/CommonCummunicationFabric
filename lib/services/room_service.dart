@@ -124,6 +124,21 @@ class RoomService {
     _currentRoomCode = null;
   }
 
+  /// Remove a specific device from a room by id.
+  /// Returns true if removed, false otherwise.
+  bool removeDeviceFromRoom(String code, String deviceId) {
+    if (!_rooms.containsKey(code)) return false;
+    final room = _rooms[code]!;
+    final before = room.connectedDevices.length;
+    room.connectedDevices.removeWhere((d) => d.id == deviceId);
+    final after = room.connectedDevices.length;
+    // If room becomes empty, remove it entirely
+    if (room.connectedDevices.isEmpty) {
+      _rooms.remove(code);
+    }
+    return after < before;
+  }
+
   /// Get current room
   Room? getCurrentRoom() {
     if (_currentRoomCode != null) {

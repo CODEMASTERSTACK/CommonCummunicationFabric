@@ -15,6 +15,7 @@ class ChatScreen extends StatefulWidget {
   final MessagingService messagingService;
   final LocalNetworkService networkService;
   final Socket? remoteSocket; // Connection to remote server if joined remotely
+  final Map<String, String> deviceNameMap; // deviceId -> deviceName mapping
 
   const ChatScreen({
     Key? key,
@@ -23,6 +24,7 @@ class ChatScreen extends StatefulWidget {
     required this.messagingService,
     required this.networkService,
     this.remoteSocket,
+    this.deviceNameMap = const {},
   }) : super(key: key);
 
   @override
@@ -34,11 +36,14 @@ class _ChatScreenState extends State<ChatScreen> {
   late List<Message> _messages;
   bool _isConnected = true;
   Timer? _refreshTimer;
+  late Set<String>
+  _previousDeviceIds; // Track devices to detect disconnects on host
 
   @override
   void initState() {
     super.initState();
     _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
+    _previousDeviceIds = {}; // Initialize to detect disconnects
     // If we're connected remotely, listen for incoming messages
     if (widget.remoteSocket != null) {
       _listenForRemoteMessages();
@@ -47,6 +52,28 @@ class _ChatScreenState extends State<ChatScreen> {
       // This ensures the UI updates when messages are received from clients
       _refreshTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
         if (mounted) {
+          final room = widget.roomService.getCurrentRoom();
+          final currentDevices = room?.connectedDevices ?? [];
+          final currentDeviceIds = currentDevices.map((d) => d.id).toSet();
+
+          // Check for devices that were there before but aren't now
+          final disconnectedIds = _previousDeviceIds.difference(
+            currentDeviceIds,
+          );
+          for (final disconId in disconnectedIds) {
+            final deviceName = widget.deviceNameMap[disconId] ?? disconId;
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('$deviceName left the room'),
+                  behavior: SnackBarBehavior.floating,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          }
+          _previousDeviceIds = currentDeviceIds;
+
           setState(() {
             _messages = widget.messagingService.getMessagesForRoom(
               widget.roomCode,
@@ -111,6 +138,22 @@ class _ChatScreenState extends State<ChatScreen> {
                   if (mounted) {
                     setState(() {}); // Trigger rebuild to update device list
                   }
+                }
+              }
+            } else if (roomCode == widget.roomCode && type == 'device_left') {
+              // A device left the room; remove from local list and show a popup
+              final room = widget.roomService.getCurrentRoom();
+              if (room != null) {
+                room.connectedDevices.removeWhere((d) => d.id == deviceId);
+                if (mounted) {
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('${content} left the room'),
+                      behavior: SnackBarBehavior.floating,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
                 }
               }
             }

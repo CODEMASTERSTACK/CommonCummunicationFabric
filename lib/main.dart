@@ -23,6 +23,8 @@ class _MainAppState extends State<MainApp> {
   late MessagingService _messagingService;
   late LocalNetworkService _networkService;
   String? _deviceName;
+  // Store device names for disconnect notifications
+  final Map<String, String> _deviceNameMap = {};
 
   @override
   void initState() {
@@ -44,11 +46,14 @@ class _MainAppState extends State<MainApp> {
       roomService: _roomService,
       onMessageReceived: (roomCode, message) {
         try {
+          final devId = message['deviceId'] as String;
+          final devName = (message['deviceName'] as String?) ?? devId;
+          // Remember device names for disconnect notifications
+          _deviceNameMap[devId] = devName;
+
           _messagingService.addMessage(
-            senderDeviceId: message['deviceId'] as String,
-            senderDeviceName:
-                (message['deviceName'] as String?) ??
-                (message['deviceId'] as String),
+            senderDeviceId: devId,
+            senderDeviceName: devName,
             content: message['content'] as String,
             roomCode: roomCode,
           );
@@ -57,6 +62,11 @@ class _MainAppState extends State<MainApp> {
 
       onDeviceConnected: (deviceId) {
         // placeholder: roomService will be updated by LocalNetworkService on register
+      },
+
+      onDeviceDisconnected: (deviceId) {
+        // Store for later use in ChatScreen
+        // (ChatScreen will handle the UI popup on host side)
       },
     );
   }
@@ -115,6 +125,7 @@ class _MainAppState extends State<MainApp> {
               messagingService: _messagingService,
               networkService: _networkService,
               remoteSocket: args['remoteSocket'] as Socket?,
+              deviceNameMap: _deviceNameMap,
             ),
           );
         }

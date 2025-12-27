@@ -13,6 +13,7 @@ class LocalNetworkService {
   final String deviceId = const Uuid().v4();
   final Map<String, Socket> _connectedClients = {};
   final Map<String, String> _deviceNames = {};
+  final Map<String, String> _clientRooms = {}; // deviceId -> roomCode
 
   final Function(String roomCode, Map<String, dynamic> message)?
   onMessageReceived;
@@ -62,9 +63,13 @@ class LocalNetworkService {
         }
       },
       onError: (error) {
+        // Handle disconnect
+        _handleClientDisconnect(client);
         client.close();
       },
       onDone: () {
+        // Client closed connection
+        _handleClientDisconnect(client);
         client.close();
       },
     );
@@ -85,6 +90,8 @@ class LocalNetworkService {
           _connectedClients[deviceId] = client;
           _deviceNames[deviceId] =
               content; // store device name sent during register
+          // remember which room this client joined
+          _clientRooms[deviceId] = roomCode;
           onDeviceConnected?.call(deviceId);
 
           // If we have a RoomService (we are host), send current room membership
@@ -113,6 +120,17 @@ class LocalNetworkService {
 
             // Broadcast device join event to all connected clients (including the new one)
             _broadcastDeviceJoined(roomCode, deviceId, content);
+          }
+        } else if (type == 'leave') {
+          // client explicitly left
+          // Remove mapping and notify
+          final room = _clientRooms.remove(deviceId);
+          _connectedClients.remove(deviceId);
+          final name = _deviceNames.remove(deviceId) ?? deviceId;
+          onDeviceDisconnected?.call(deviceId);
+          if (roomService != null && room != null) {
+            roomService!.removeDeviceFromRoom(room, deviceId);
+            _broadcastDeviceLeft(room, deviceId, name);
           }
         } else if (type == 'message') {
           final deviceName = _deviceNames[deviceId] ?? deviceId;
@@ -159,6 +177,43 @@ class LocalNetworkService {
       } catch (e) {
         // ignore
       }
+    }
+  }
+
+  void _broadcastDeviceLeft(
+    String roomCode,
+    String deviceId,
+    String deviceName,
+  ) {
+    String msg = '$roomCode|device_left|$deviceId|$deviceName';
+    for (var client in _connectedClients.values) {
+      try {
+        client.write('$msg\n');
+        client.flush();
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
+  void _handleClientDisconnect(Socket client) {
+    try {
+      String? foundId;
+      _connectedClients.forEach((id, sock) {
+        if (sock == client) foundId = id;
+      });
+      if (foundId == null) return;
+      final deviceId = foundId!;
+      final deviceName = _deviceNames.remove(deviceId) ?? deviceId;
+      final roomCode = _clientRooms.remove(deviceId);
+      _connectedClients.remove(deviceId);
+      onDeviceDisconnected?.call(deviceId);
+      if (roomService != null && roomCode != null) {
+        roomService!.removeDeviceFromRoom(roomCode, deviceId);
+        _broadcastDeviceLeft(roomCode, deviceId, deviceName);
+      }
+    } catch (e) {
+      // ignore
     }
   }
 
