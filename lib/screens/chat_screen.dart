@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import '../models/message.dart';
 import '../models/device.dart';
+import '../models/file_transfer.dart';
 import '../services/messaging_service.dart';
 import '../services/room_service.dart';
 import '../services/local_network_service.dart';
@@ -34,6 +35,9 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
+  static const int maxFileSize = 100 * 1024 * 1024; // 100MB
+  static const int chunkSize = 256 * 1024; // 256KB chunks
+
   final TextEditingController _messageController = TextEditingController();
   late List<Message> _messages;
   bool _isConnected = true;
@@ -46,6 +50,10 @@ class _ChatScreenState extends State<ChatScreen> {
   // File transfer state
   StringBuffer _messageBuffer =
       StringBuffer(); // Buffer for incomplete messages
+  final Map<String, FileTransfer> _incomingTransfers =
+      {}; // fileId -> FileTransfer for receiving
+  final Map<String, double> _outgoingProgress =
+      {}; // fileId -> upload progress (0.0 to 1.0)
 
   @override
   void initState() {
@@ -164,10 +172,111 @@ class _ChatScreenState extends State<ChatScreen> {
               );
             });
           }
+        } else if (roomCode == widget.roomCode && type == 'fileshare_start') {
+          // Start of chunked file transfer
+          try {
+            final metadata = jsonDecode(content) as Map<String, dynamic>;
+            final fileId = metadata['fileId'] as String;
+            final fileName = metadata['fileName'] as String?;
+            final mimeType = metadata['mimeType'] as String?;
+            final fileSize = metadata['fileSize'] as int?;
+            final totalChunks = metadata['totalChunks'] as int?;
+
+            if (fileName != null && totalChunks != null) {
+              final transfer = FileTransfer(
+                fileId: fileId,
+                fileName: fileName,
+                totalSize: fileSize ?? 0,
+                chunkSize: chunkSize,
+                totalChunks: totalChunks,
+                senderDeviceId: deviceId,
+                senderDeviceName: widget.deviceNameMap[deviceId] ?? deviceId,
+                mimeType: mimeType ?? '',
+              );
+              _incomingTransfers[fileId] = transfer;
+              print('Started receiving file: $fileName ($totalChunks chunks)');
+            }
+          } catch (e) {
+            print('Error processing fileshare_start: $e');
+          }
+        } else if (roomCode == widget.roomCode &&
+            type == 'fileshare_chunk') {
+          // Chunk of file data
+          try {
+            final metadata = jsonDecode(content) as Map<String, dynamic>;
+            final fileId = metadata['fileId'] as String;
+            final chunkIndex = metadata['chunkIndex'] as int;
+            final totalChunks = metadata['totalChunks'] as int;
+            final chunkDataBase64 = metadata['chunkData'] as String;
+
+            final transfer = _incomingTransfers[fileId];
+            if (transfer != null) {
+              final chunkData = base64Decode(chunkDataBase64);
+              transfer.chunks[chunkIndex] = chunkData;
+              transfer.chunksReceived++;
+
+              print(
+                'Received chunk $chunkIndex/$totalChunks for ${transfer.fileName} (${(transfer.progress * 100).toStringAsFixed(1)}%)',
+              );
+
+              if (mounted) {
+                setState(() {}); // Update progress indicator
+              }
+            }
+          } catch (e) {
+            print('Error processing fileshare_chunk: $e');
+          }
+        } else if (roomCode == widget.roomCode && type == 'fileshare_end') {
+          // End of file transfer - reassemble and save
+          try {
+            final fileId = content;
+            final transfer = _incomingTransfers[fileId];
+
+            if (transfer != null && transfer.isComplete) {
+              print('File transfer complete: ${transfer.fileName}');
+
+              // Reassemble file
+              final fileBytes = transfer.reassemble();
+
+              // Save file to local storage
+              final savedPath = await _fileService.saveReceivedFile(
+                fileName: transfer.fileName,
+                fileBytes: fileBytes,
+              );
+
+              // Add file message to storage
+              widget.messagingService.addMessage(
+                senderDeviceId: transfer.senderDeviceId,
+                senderDeviceName: transfer.senderDeviceName,
+                content: 'Sent a file: ${transfer.fileName}',
+                roomCode: roomCode,
+                type: 'file',
+                fileName: transfer.fileName,
+                fileMimeType: transfer.mimeType,
+                fileSize: fileBytes.length,
+                localFilePath: savedPath,
+              );
+
+              print('File saved to: $savedPath');
+
+              // Clean up transfer
+              _incomingTransfers.remove(fileId);
+
+              if (mounted) {
+                setState(() {
+                  _messages = widget.messagingService.getMessagesForRoom(
+                    widget.roomCode,
+                  );
+                });
+              }
+            }
+          } catch (e) {
+            print('Error finalizing file transfer: $e');
+          }
         } else if (roomCode == widget.roomCode && type == 'fileshare') {
-          // Handle file share message (skip if it's our own file we just sent)
+          // Legacy: Handle single-chunk file share (for backward compatibility)
           final isOwnFile = (deviceId == widget.roomService.currentDeviceId);
-          
+
           if (!isOwnFile) {
             try {
               final fileMetadata = jsonDecode(content) as Map<String, dynamic>;
@@ -178,7 +287,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
               if (fileName != null && base64Data != null) {
                 print(
-                  'Processing fileshare: $fileName (${base64Data.length} chars of base64)',
+                  'Processing legacy fileshare: $fileName (${base64Data.length} chars of base64)',
                 );
                 // Decode base64 to binary
                 final fileBytes = base64Decode(base64Data);
@@ -190,7 +299,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 );
 
                 // Get sender device name
-                final senderName = widget.deviceNameMap[deviceId] ?? deviceId;
+                final senderName =
+                    widget.deviceNameMap[deviceId] ?? deviceId;
 
                 // Add file message to storage
                 widget.messagingService.addMessage(
@@ -216,7 +326,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 }
               }
             } catch (e) {
-              print('Error processing file message: $e');
+              print('Error processing legacy file message: $e');
             }
           }
         } else if (roomCode == widget.roomCode && type == 'device_joined') {
@@ -321,13 +431,33 @@ class _ChatScreenState extends State<ChatScreen> {
         }
 
         final fileObj = File(filePath);
+        final fileSize = await fileObj.length();
+
+        // Validate file size (100MB limit)
+        if (fileSize > maxFileSize) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'File too large. Maximum size is ${FileService.formatFileSize(maxFileSize)}',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        }
+
         final fileBytes = await fileObj.readAsBytes();
         final fileName = file.name;
         final mimeType = _fileService.getMimeType(fileName);
 
+        // Generate unique file ID for this transfer
+        final fileId = '${DateTime.now().millisecondsSinceEpoch}_${fileName.hashCode}';
+
         // Create file message metadata
         final fileMessage = Message(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          id: fileId,
           senderDeviceId: widget.roomService.currentDeviceId,
           senderDeviceName: widget.roomService.currentDeviceName,
           content: 'Sent a file: $fileName',
@@ -351,14 +481,15 @@ class _ChatScreenState extends State<ChatScreen> {
           fileSize: fileBytes.length,
         );
 
-        // Send file metadata and data to other devices
-        await _sendFileToOthers(fileMessage, fileBytes);
+        // Send file in chunks
+        await _sendFileInChunks(fileId, fileMessage, fileBytes);
 
         if (mounted) {
           setState(() {
             _messages = widget.messagingService.getMessagesForRoom(
               widget.roomCode,
             );
+            _outgoingProgress.remove(fileId);
           });
 
           ScaffoldMessenger.of(context).showSnackBar(
@@ -379,47 +510,98 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _sendFileToOthers(
+  Future<void> _sendFileInChunks(
+    String fileId,
     Message fileMessage,
     List<int> fileBytes,
   ) async {
     try {
-      // Encode file data as base64 to send over text-based socket
-      final base64FileData = base64Encode(fileBytes);
+      final int totalChunks =
+          (fileBytes.length + chunkSize - 1) ~/ chunkSize;
+      _outgoingProgress[fileId] = 0.0;
 
-      // Create file metadata object
-      final fileMetadata = {
+      // Send start message with file metadata
+      final startMetadata = {
+        'fileId': fileId,
         'fileName': fileMessage.fileName,
         'mimeType': fileMessage.fileMimeType,
-        'fileSize': fileMessage.fileSize,
-        'base64Data': base64FileData,
+        'fileSize': fileBytes.length,
+        'chunkSize': chunkSize,
+        'totalChunks': totalChunks,
       };
 
-      final metadataJson = jsonEncode(fileMetadata);
+      final startMessage =
+          '${fileMessage.roomCode}|fileshare_start|${fileMessage.senderDeviceId}|${jsonEncode(startMetadata)}';
 
-      // If this is a client, send to server
       if (widget.remoteSocket != null) {
-        try {
-          // Use standard fileshare protocol
-          final message =
-              '${fileMessage.roomCode}|fileshare|${fileMessage.senderDeviceId}|$metadataJson';
-          widget.remoteSocket!.write('$message\n');
-          widget.remoteSocket!.flush();
-          print('File sent to server');
-        } catch (e) {
-          print('Error sending file to server: $e');
-        }
+        widget.remoteSocket!.write('$startMessage\n');
+        widget.remoteSocket!.flush();
       } else {
-        // If this is a host, broadcast to all clients using specialized method
-        widget.networkService.hostBroadcastFileShare(
+        widget.networkService.hostBroadcastFileShareStart(
           fileMessage.roomCode,
           fileMessage.senderDeviceId,
-          metadataJson,
+          jsonEncode(startMetadata),
         );
-        print('File broadcasted to all clients');
       }
+
+      // Send chunks
+      for (int i = 0; i < totalChunks; i++) {
+        final start = i * chunkSize;
+        final end = (i + 1) * chunkSize > fileBytes.length
+            ? fileBytes.length
+            : (i + 1) * chunkSize;
+        final chunk = fileBytes.sublist(start, end);
+        final base64Chunk = base64Encode(chunk);
+
+        final chunkMetadata = {
+          'fileId': fileId,
+          'chunkIndex': i,
+          'totalChunks': totalChunks,
+          'chunkData': base64Chunk,
+        };
+
+        final chunkMessage =
+            '${fileMessage.roomCode}|fileshare_chunk|${fileMessage.senderDeviceId}|${jsonEncode(chunkMetadata)}';
+
+        if (widget.remoteSocket != null) {
+          widget.remoteSocket!.write('$chunkMessage\n');
+          widget.remoteSocket!.flush();
+        } else {
+          widget.networkService.hostBroadcastFileShareChunk(
+            fileMessage.roomCode,
+            fileMessage.senderDeviceId,
+            jsonEncode(chunkMetadata),
+          );
+        }
+
+        // Update progress
+        setState(() {
+          _outgoingProgress[fileId] = (i + 1) / totalChunks;
+        });
+
+        // Add small delay to prevent overwhelming the socket
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+
+      // Send end message
+      final endMessage =
+          '${fileMessage.roomCode}|fileshare_end|${fileMessage.senderDeviceId}|$fileId';
+
+      if (widget.remoteSocket != null) {
+        widget.remoteSocket!.write('$endMessage\n');
+        widget.remoteSocket!.flush();
+      } else {
+        widget.networkService.hostBroadcastFileShareEnd(
+          fileMessage.roomCode,
+          fileMessage.senderDeviceId,
+          fileId,
+        );
+      }
+
+      print('File $fileId sent in $totalChunks chunks');
     } catch (e) {
-      print('Error sending file: $e');
+      print('Error sending file in chunks: $e');
+      _outgoingProgress.remove(fileId);
     }
   }
 
@@ -609,36 +791,36 @@ class _ChatScreenState extends State<ChatScreen> {
                                     horizontal: 16,
                                     vertical: 10,
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      // Handle file messages differently
-                                      if (message.type == 'file')
-                                        _buildFileMessageContent(message)
-                                      else
-                                        Text(
-                                          message.content,
-                                          style: TextStyle(
-                                            color: isCurrentUser
-                                                ? Colors.white
-                                                : Colors.black,
-                                          ),
-                                        ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        DateFormat(
-                                          'HH:mm',
-                                        ).format(message.timestamp),
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: isCurrentUser
-                                              ? Colors.white70
-                                              : Colors.grey.shade600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                  child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        // Handle file messages differently
+                        if (message.type == 'file')
+                          _buildFileMessageContent(message)
+                        else
+                          Text(
+                            message.content,
+                            style: TextStyle(
+                              color: isCurrentUser
+                                  ? Colors.white
+                                  : Colors.black,
+                            ),
+                          ),
+                        const SizedBox(height: 4),
+                        Text(
+                          DateFormat(
+                            'HH:mm',
+                          ).format(message.timestamp),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isCurrentUser
+                                ? Colors.white70
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
                                 ),
                               ],
                             ),
@@ -712,16 +894,21 @@ class _ChatScreenState extends State<ChatScreen> {
     final fileSize = message.fileSize ?? 0;
     final fileSizeStr = FileService.formatFileSize(fileSize);
 
-    return InkWell(
-      onTap: message.localFilePath != null
-          ? () {
-              _openFile(message.localFilePath!);
-            }
-          : null,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    // Check if this file is currently being transferred
+    final fileId = message.id;
+    final transferProgress = _incomingTransfers[fileId];
+    final outgoingProgress = _outgoingProgress[fileId];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: message.localFilePath != null
+              ? () {
+                  _openFile(message.localFilePath!);
+                }
+              : null,
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
@@ -757,8 +944,67 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ],
           ),
-        ],
-      ),
+        ),
+        // Show progress if transfer is in progress
+        if (transferProgress != null && !transferProgress.isComplete)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: transferProgress.progress,
+                  backgroundColor:
+                      isCurrentUser ? Colors.white24 : Colors.grey.shade400,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    isCurrentUser ? Colors.white : Colors.blue,
+                  ),
+                  minHeight: 4,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${(transferProgress.progress * 100).toStringAsFixed(0)}%',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isCurrentUser
+                      ? Colors.white70
+                      : Colors.grey.shade600,
+                ),
+              ),
+            ],
+          )
+        else if (outgoingProgress != null && outgoingProgress < 1.0)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: outgoingProgress,
+                  backgroundColor:
+                      isCurrentUser ? Colors.white24 : Colors.grey.shade400,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    isCurrentUser ? Colors.white : Colors.blue,
+                  ),
+                  minHeight: 4,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${(outgoingProgress * 100).toStringAsFixed(0)}%',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isCurrentUser
+                      ? Colors.white70
+                      : Colors.grey.shade600,
+                ),
+              ),
+            ],
+          ),
+      ],
     );
   }
 

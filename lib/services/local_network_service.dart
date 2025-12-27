@@ -15,7 +15,12 @@ class LocalNetworkService {
   final Map<String, Socket> _connectedClients = {};
   final Map<String, String> _deviceNames = {};
   final Map<String, String> _clientRooms = {}; // deviceId -> roomCode
-  final Map<String, StringBuffer> _clientMessageBuffers = {}; // Per-client message buffers
+  final Map<String, StringBuffer> _clientMessageBuffers =
+      {}; // Per-client message buffers
+  final Map<String, Map<String, dynamic>> _incomingFileTransfers =
+      {}; // fileId -> transfer metadata
+  final Map<String, Map<int, List<int>>> _incomingFileChunks =
+      {}; // fileId -> chunks
 
   final Function(String roomCode, Map<String, dynamic> message)?
   onMessageReceived;
@@ -71,15 +76,15 @@ class LocalNetworkService {
       (List<int> data) async {
         try {
           String chunk = utf8.decode(data);
-          
+
           // Add chunk to client's message buffer
           StringBuffer buffer = _clientMessageBuffers[clientKey]!;
           buffer.write(chunk);
-          
+
           // Process complete messages (delimited by \n)
           String bufferedData = buffer.toString();
           List<String> messages = bufferedData.split('\n');
-          
+
           // Last element might be incomplete, keep it in buffer
           for (int i = 0; i < messages.length - 1; i++) {
             String message = messages[i].trim();
@@ -87,7 +92,7 @@ class LocalNetworkService {
               await _processIncomingMessage(message, client);
             }
           }
-          
+
           // Keep the last incomplete message (or empty string) in buffer
           buffer.clear();
           if (messages.isNotEmpty && messages.last.isNotEmpty) {
@@ -180,11 +185,102 @@ class LocalNetworkService {
             'timestamp': DateTime.now().toIso8601String(),
           });
           _broadcastMessage(roomCode, deviceId, content);
+        } else if (type == 'fileshare_start') {
+          // Start of chunked file transfer
+          try {
+            final metadata = jsonDecode(content) as Map<String, dynamic>;
+            final fileId = metadata['fileId'] as String;
+            _incomingFileTransfers[fileId] = metadata;
+            _incomingFileChunks[fileId] = {};
+            print('Started receiving chunked file: $fileId');
+            // Broadcast to other clients
+            hostBroadcastFileShareStart(roomCode, deviceId, content);
+          } catch (e) {
+            print('Error processing fileshare_start: $e');
+          }
+        } else if (type == 'fileshare_chunk') {
+          // Chunk of file data
+          try {
+            final metadata = jsonDecode(content) as Map<String, dynamic>;
+            final fileId = metadata['fileId'] as String;
+            final chunkIndex = metadata['chunkIndex'] as int;
+            final chunkDataBase64 = metadata['chunkData'] as String;
+            final chunkData = base64Decode(chunkDataBase64);
+            
+            if (!_incomingFileChunks.containsKey(fileId)) {
+              _incomingFileChunks[fileId] = {};
+            }
+            _incomingFileChunks[fileId]![chunkIndex] = chunkData;
+            print('Received chunk $chunkIndex for file $fileId');
+            // Broadcast to other clients
+            hostBroadcastFileShareChunk(roomCode, deviceId, content);
+          } catch (e) {
+            print('Error processing fileshare_chunk: $e');
+          }
+        } else if (type == 'fileshare_end') {
+          // End of file transfer - reassemble and save
+          try {
+            final fileId = content;
+            final fileTransfer = _incomingFileTransfers[fileId];
+            final chunks = _incomingFileChunks[fileId];
+            
+            if (fileTransfer != null && chunks != null) {
+              print('File transfer complete: $fileId');
+              
+              // Reassemble chunks
+              final fileBytes = <int>[];
+              final totalChunks = fileTransfer['totalChunks'] as int;
+              for (int i = 0; i < totalChunks; i++) {
+                if (chunks.containsKey(i)) {
+                  fileBytes.addAll(chunks[i]!);
+                }
+              }
+              
+              // Save file
+              final fileName = fileTransfer['fileName'] as String?;
+              final mimeType = fileTransfer['mimeType'] as String?;
+              String? savedPath;
+              
+              if (fileName != null) {
+                try {
+                  savedPath = await fileService.saveReceivedFile(
+                    fileName: fileName,
+                    fileBytes: fileBytes,
+                  );
+                  print('File saved to: $savedPath');
+                } catch (e) {
+                  print('Error saving file: $e');
+                }
+                
+                // Add file message to host's storage
+                final deviceName = _deviceNames[deviceId] ?? 'Unknown Device';
+                onMessageReceived?.call(roomCode, {
+                  'deviceId': deviceId,
+                  'deviceName': deviceName,
+                  'content': 'Sent a file: $fileName',
+                  'timestamp': DateTime.now().toIso8601String(),
+                  'type': 'file',
+                  'fileName': fileName,
+                  'fileMimeType': mimeType,
+                  'fileSize': fileBytes.length,
+                  'localFilePath': savedPath,
+                });
+              }
+              
+              // Clean up
+              _incomingFileTransfers.remove(fileId);
+              _incomingFileChunks.remove(fileId);
+            }
+            // Broadcast to other clients
+            hostBroadcastFileShareEnd(roomCode, deviceId, fileId);
+          } catch (e) {
+            print('Error finalizing file transfer: $e');
+          }
         } else if (type == 'fileshare') {
-          // Handle file share message from client
+          // Legacy: Handle single-chunk file share (for backward compatibility)
           final deviceName = _deviceNames[deviceId] ?? 'Unknown Device';
-          print('Received fileshare from $deviceName');
-          
+          print('Received legacy fileshare from $deviceName');
+
           // Parse file metadata from content
           try {
             final fileMetadata = jsonDecode(content);
@@ -192,7 +288,7 @@ class LocalNetworkService {
             final mimeType = fileMetadata['mimeType'] ?? '';
             final fileSize = fileMetadata['fileSize'] ?? 0;
             final base64Data = fileMetadata['base64Data'] ?? '';
-            
+
             // Decode and save the file if we have data
             String? savedPath;
             if (base64Data.isNotEmpty) {
@@ -207,7 +303,7 @@ class LocalNetworkService {
                 print('Error saving file: $e');
               }
             }
-            
+
             // Add file message to host's own message storage with the saved path
             onMessageReceived?.call(roomCode, {
               'deviceId': deviceId,
@@ -221,9 +317,9 @@ class LocalNetworkService {
               'localFilePath': savedPath,
             });
           } catch (e) {
-            print('Error parsing file metadata: $e');
+            print('Error parsing legacy file metadata: $e');
           }
-          
+
           // Broadcast to all other connected clients
           hostBroadcastFileShare(roomCode, deviceId, content);
         }
@@ -328,6 +424,57 @@ class LocalNetworkService {
         client.flush();
       } catch (e) {
         print('Error broadcasting file to client: $e');
+      }
+    }
+  }
+
+  /// Host broadcasts fileshare_start message to all connected clients
+  void hostBroadcastFileShareStart(
+    String roomCode,
+    String deviceId,
+    String metadata,
+  ) {
+    String msg = '$roomCode|fileshare_start|$deviceId|$metadata';
+    for (var client in _connectedClients.values) {
+      try {
+        client.write('$msg\n');
+        client.flush();
+      } catch (e) {
+        print('Error broadcasting fileshare_start to client: $e');
+      }
+    }
+  }
+
+  /// Host broadcasts fileshare_chunk message to all connected clients
+  void hostBroadcastFileShareChunk(
+    String roomCode,
+    String deviceId,
+    String chunkMetadata,
+  ) {
+    String msg = '$roomCode|fileshare_chunk|$deviceId|$chunkMetadata';
+    for (var client in _connectedClients.values) {
+      try {
+        client.write('$msg\n');
+        client.flush();
+      } catch (e) {
+        print('Error broadcasting fileshare_chunk to client: $e');
+      }
+    }
+  }
+
+  /// Host broadcasts fileshare_end message to all connected clients
+  void hostBroadcastFileShareEnd(
+    String roomCode,
+    String deviceId,
+    String fileId,
+  ) {
+    String msg = '$roomCode|fileshare_end|$deviceId|$fileId';
+    for (var client in _connectedClients.values) {
+      try {
+        client.write('$msg\n');
+        client.flush();
+      } catch (e) {
+        print('Error broadcasting fileshare_end to client: $e');
       }
     }
   }
