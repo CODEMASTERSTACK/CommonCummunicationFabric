@@ -1,20 +1,25 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/room_service.dart';
 import '../services/local_network_service.dart';
 import '../services/recent_connections_service.dart';
+import 'settings_screen.dart';
+import '../main.dart';
 
 class HomeScreen extends StatefulWidget {
   final RoomService roomService;
   final LocalNetworkService networkService;
   final RecentConnectionsService recentConnectionsService;
+  final ThemeProvider? themeProvider;
 
   const HomeScreen({
     Key? key,
     required this.roomService,
     required this.networkService,
     required this.recentConnectionsService,
+    this.themeProvider,
   }) : super(key: key);
 
   @override
@@ -168,275 +173,478 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final timeGreeting = _timeGreeting();
+    final deviceName = widget.roomService.currentDeviceName ?? 'Device';
+    final greetingText = timeGreeting == 'Batman Mode'
+        ? 'Batman Mode, $deviceName'
+        : 'Good $timeGreeting, $deviceName';
 
     return Scaffold(
       backgroundColor: isDarkMode ? Colors.grey.shade900 : Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text('Connect'),
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-      ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.start,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Hero Section
-              Column(
-                children: [
-                  Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [Colors.blue.shade400, Colors.blue.shade600],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.share_arrival_time,
-                      size: 50,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Seamless Connection',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Share and communicate across devices on your network',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: isDarkMode
-                          ? Colors.grey.shade400
-                          : Colors.grey.shade600,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 56),
-
-              // Device Info Card (Minimal)
-              Container(
-                padding: const EdgeInsets.all(16.0),
-                decoration: BoxDecoration(
-                  color: isDarkMode ? Colors.grey.shade800 : Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isDarkMode
-                        ? Colors.grey.shade700
-                        : Colors.grey.shade200,
-                    width: 1,
-                  ),
-                ),
-                child: Row(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              20.0,
+              24.0,
+              20.0,
+              24.0 + MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Greeting + status
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.devices,
-                        color: Colors.blue.shade600,
-                        size: 24,
+                    Expanded(
+                      child: Text(
+                        greetingText,
+                        softWrap: true,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 32,
+                            ),
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDarkMode ? Colors.grey.shade800 : Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: Colors.green.shade600,
+                          width: 1.2,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade400,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
                           Text(
-                            widget.roomService.currentDeviceName,
-                            style: Theme.of(context).textTheme.titleSmall
+                            'Online',
+                            style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(fontWeight: FontWeight.w600),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Your device',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: isDarkMode
-                                      ? Colors.grey.shade500
-                                      : Colors.grey.shade500,
-                                ),
+                          const SizedBox(width: 8),
+                          FutureBuilder<String?>(
+                            future: LocalNetworkService.getLocalIpAddress(),
+                            builder: (context, snapshot) {
+                              final ip =
+                                  (snapshot.connectionState ==
+                                      ConnectionState.done)
+                                  ? (snapshot.data ?? '—')
+                                  : '...';
+                              return Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '($ip)',
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(color: Colors.grey.shade500),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  IconButton(
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    icon: Icon(
+                                      Icons.settings,
+                                      size: 18,
+                                      color: isDarkMode
+                                          ? Colors.white70
+                                          : Colors.black54,
+                                    ),
+                                    onPressed: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => SettingsScreen(
+                                            themeProvider: widget.themeProvider,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    tooltip: 'Settings',
+                                  ),
+                                ],
+                              );
+                            },
                           ),
                         ],
                       ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 40),
+                const SizedBox(height: 28),
 
-              // Create Room Section
-              _buildActionSection(
-                context,
-                icon: Icons.add_circle_outline,
-                title: 'Create New Room',
-                subtitle: 'Start hosting and share the code',
-                onPressed: _isLoading ? null : () => _createRoom(),
-                isPrimary: true,
-                isDarkMode: isDarkMode,
-              ),
-              const SizedBox(height: 24),
+                // Action cards: Start a Room & Join Room
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isNarrow = constraints.maxWidth < 700;
+                    return isNarrow
+                        ? Column(
+                            children: [
+                              _buildStartCard(context, isDarkMode),
+                              const SizedBox(height: 12),
+                              _buildJoinCard(context, isDarkMode),
+                            ],
+                          )
+                        : Row(
+                            children: [
+                              Expanded(
+                                child: _buildStartCard(context, isDarkMode),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _buildJoinCard(context, isDarkMode),
+                              ),
+                            ],
+                          );
+                  },
+                ),
 
-              // Divider with OR
-              Row(
-                children: [
-                  const Expanded(child: Divider(height: 1)),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Text(
-                      'OR',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: isDarkMode
-                            ? Colors.grey.shade500
-                            : Colors.grey.shade400,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  const Expanded(child: Divider(height: 1)),
-                ],
-              ),
-              const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
-              // Join Room Section
-              _buildActionSection(
-                context,
-                icon: Icons.login,
-                title: 'Join Existing Room',
-                subtitle: 'Enter the 6-digit code',
-                onPressed: _isLoading ? null : () => _joinRoom(),
-                isPrimary: false,
-                isDarkMode: isDarkMode,
-              ),
-              const SizedBox(height: 16),
-
-              // Join Room Input
-              TextField(
-                controller: _codeController,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                maxLength: 6,
-                enabled: !_isLoading,
-                decoration: InputDecoration(
-                  hintText: '000000',
-                  hintStyle: TextStyle(
-                    letterSpacing: 4,
+                // Recent Connections (bigger, with clear separation)
+                Container(
+                  decoration: BoxDecoration(
                     color: isDarkMode
-                        ? Colors.grey.shade600
-                        : Colors.grey.shade300,
-                  ),
-                  border: OutlineInputBorder(
+                        ? Colors.grey.shade900
+                        : Colors.grey.shade50,
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: isDarkMode
-                          ? Colors.grey.shade700
-                          : Colors.grey.shade300,
-                    ),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: isDarkMode
-                          ? Colors.grey.shade700
-                          : Colors.grey.shade300,
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: Colors.blue.shade500,
-                      width: 2,
-                    ),
-                  ),
-                  counterText: '',
-                  contentPadding: const EdgeInsets.symmetric(vertical: 20),
-                  filled: true,
-                  fillColor: isDarkMode
-                      ? Colors.grey.shade800
-                      : Colors.grey.shade50,
-                ),
-                style: const TextStyle(
-                  fontSize: 28,
-                  letterSpacing: 4,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // Join Button
-              SizedBox(
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : () => _joinRoom(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green.shade500,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: Colors.grey.shade400,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    'Join Room',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 32),
-
-              // Error Message
-              if (_errorMessage != null)
-                _buildErrorMessage(_errorMessage!, isDarkMode),
-
-              // Loading Indicator
-              if (_isLoading)
-                Padding(
-                  padding: const EdgeInsets.only(top: 16.0),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Colors.blue.shade500,
+                      const SizedBox(height: 6),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                        child: _buildRecentConnectionsSection(
+                          context,
+                          isDarkMode,
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                // Know About The Working (moved below Recent Connections)
+                Divider(
+                  color: isDarkMode
+                      ? Colors.grey.shade800
+                      : Colors.grey.shade300,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Know About The Working',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Understand how the message and file transfer system operates in this application.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: isDarkMode
+                        ? Colors.grey.shade500
+                        : Colors.grey.shade700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _buildHowItWorksItem(
+                      context,
+                      icon: Icons.wifi,
+                      title: 'Connect',
+                      subtitle:
+                          'Ensure all devices on the same Wi‑Fi or Ethernet network.',
+                      isDarkMode: isDarkMode,
+                    ),
+                    _buildHowItWorksItem(
+                      context,
+                      icon: Icons.share,
+                      title: 'Host or Join',
+                      subtitle:
+                          "One person creates room; other enter host's IP address.",
+                      isDarkMode: isDarkMode,
+                    ),
+                    _buildHowItWorksItem(
+                      context,
+                      icon: Icons.chat_bubble_outline,
+                      title: 'Chat',
+                      subtitle:
+                          'Enjoy zero‑latency messaging without using internet.',
+                      isDarkMode: isDarkMode,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 200),
+                Center(
+                  child: Text(
+                    'Made for ease - by Krish',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: isDarkMode
+                          ? Colors.grey.shade400
+                          : Colors.grey.shade600,
+                      fontStyle: FontStyle.italic,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _timeGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour >= 21) {
+      return 'Batman Mode';
+    } else if (hour >= 17) {
+      return 'Evening';
+    } else if (hour >= 12) {
+      return 'Afternoon';
+    } else {
+      return 'Morning';
+    }
+  }
+
+  Widget _buildStartCard(BuildContext context, bool isDarkMode) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _isLoading ? null : () => _createRoom(),
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            height: 140,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF6D28D9), Color(0xFF8B5CF6)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.12),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.meeting_room,
+                    color: Colors.white,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
                       Text(
-                        'Connecting...',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: isDarkMode
-                              ? Colors.grey.shade500
-                              : Colors.grey.shade600,
-                        ),
+                        'Start a Room',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Host a secure server on this machine',
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodySmall?.copyWith(color: Colors.white70),
                       ),
                     ],
                   ),
                 ),
-              const SizedBox(height: 40),
-
-              // Recent Connections Section
-              _buildRecentConnectionsSection(context, isDarkMode),
-            ],
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildJoinCard(BuildContext context, bool isDarkMode) {
+    return Container(
+      height: 140,
+      decoration: BoxDecoration(
+        color: isDarkMode ? Colors.grey.shade800 : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDarkMode ? Colors.grey.shade700 : Colors.grey.shade200,
+        ),
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: isDarkMode
+                      ? Colors.grey.shade800
+                      : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.login,
+                  size: 26,
+                  color: isDarkMode ? Colors.white : Colors.black54,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Join Room',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _codeController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      hintText: 'Enter the Room Code displayed on host screen',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(
+                          color: isDarkMode
+                              ? Colors.grey.shade600
+                              : Colors.grey.shade300,
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(
+                          color: isDarkMode
+                              ? Colors.grey.shade600
+                              : Colors.grey.shade300,
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(
+                          color: Colors.blue.shade500,
+                          width: 2,
+                        ),
+                      ),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 8,
+                        horizontal: 12,
+                      ),
+                    ),
+                    enabled: !_isLoading,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 92,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : () => _joinRoom(),
+                    style: ElevatedButton.styleFrom(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                    child: const Text('Join'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHowItWorksItem(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool isDarkMode,
+  }) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            icon,
+            size: 28,
+            color: isDarkMode ? Colors.white70 : Colors.black54,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: isDarkMode ? Colors.grey.shade500 : Colors.grey.shade700,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -588,7 +796,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 12),
         SizedBox(
-          height: 90,
+          height: 140,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             itemCount: connections.length,

@@ -165,7 +165,10 @@ class LocalNetworkService {
             if (existingRoom != null) {
               for (var d in existingRoom.connectedDevices) {
                 try {
-                  _enqueueWrite(client, '$roomCode|device_joined|${d.id}|${d.name}\n');
+                  _enqueueWrite(
+                    client,
+                    '$roomCode|device_joined|${d.id}|${d.name}\n',
+                  );
                 } catch (e) {
                   // ignore
                 }
@@ -223,7 +226,7 @@ class LocalNetworkService {
             final chunkIndex = metadata['chunkIndex'] as int;
             final chunkDataBase64 = metadata['chunkData'] as String;
             final chunkData = base64Decode(chunkDataBase64);
-            
+
             if (!_incomingFileChunks.containsKey(fileId)) {
               _incomingFileChunks[fileId] = {};
             }
@@ -240,10 +243,10 @@ class LocalNetworkService {
             final fileId = content;
             final fileTransfer = _incomingFileTransfers[fileId];
             final chunks = _incomingFileChunks[fileId];
-            
+
             if (fileTransfer != null && chunks != null) {
               print('File transfer complete: $fileId');
-              
+
               // Reassemble chunks
               final fileBytes = <int>[];
               final totalChunks = fileTransfer['totalChunks'] as int;
@@ -252,12 +255,12 @@ class LocalNetworkService {
                   fileBytes.addAll(chunks[i]!);
                 }
               }
-              
+
               // Save file
               final fileName = fileTransfer['fileName'] as String?;
               final mimeType = fileTransfer['mimeType'] as String?;
               String? savedPath;
-              
+
               if (fileName != null) {
                 try {
                   savedPath = await fileService.saveReceivedFile(
@@ -268,7 +271,7 @@ class LocalNetworkService {
                 } catch (e) {
                   print('Error saving file: $e');
                 }
-                
+
                 // Add file message to host's storage
                 final deviceName = _deviceNames[deviceId] ?? 'Unknown Device';
                 onMessageReceived?.call(roomCode, {
@@ -283,7 +286,7 @@ class LocalNetworkService {
                   'localFilePath': savedPath,
                 });
               }
-              
+
               // Clean up
               _incomingFileTransfers.remove(fileId);
               _incomingFileChunks.remove(fileId);

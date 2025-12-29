@@ -27,7 +27,7 @@ class DeviceUtils {
       case 'laptop':
         return '💻';
       default:
-        return '📱';
+        return '💻';
     }
   }
 

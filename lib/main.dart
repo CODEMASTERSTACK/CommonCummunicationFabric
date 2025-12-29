@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'screens/device_name_screen.dart';
 import 'screens/home_screen.dart';
@@ -11,6 +12,30 @@ import 'services/file_service.dart';
 
 void main() {
   runApp(const MainApp());
+}
+
+class ThemeProvider extends ChangeNotifier {
+  ThemeMode _themeMode = ThemeMode.system;
+
+  ThemeMode get themeMode => _themeMode;
+
+  ThemeProvider() {
+    _loadThemeAsync();
+  }
+
+  Future<void> _loadThemeAsync() async {
+    final prefs = await SharedPreferences.getInstance();
+    final themeIndex = prefs.getInt('app_theme') ?? 0;
+    _themeMode = ThemeMode.values[themeIndex];
+    notifyListeners();
+  }
+
+  Future<void> setTheme(ThemeMode mode) async {
+    _themeMode = mode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('app_theme', mode.index);
+    notifyListeners();
+  }
 }
 
 class MainApp extends StatefulWidget {
@@ -26,13 +51,14 @@ class _MainAppState extends State<MainApp> {
   late LocalNetworkService _networkService;
   late RecentConnectionsService _recentConnectionsService;
   late FileService _fileService;
+  late ThemeProvider _themeProvider;
   String? _deviceName;
-  // Store device names for disconnect notifications
   final Map<String, String> _deviceNameMap = {};
 
   @override
   void initState() {
     super.initState();
+    _themeProvider = ThemeProvider();
     _initializeServices();
   }
 
@@ -40,7 +66,6 @@ class _MainAppState extends State<MainApp> {
     String deviceName = _getDeviceIdentifier();
     _roomService = RoomService(deviceName: deviceName);
     _recentConnectionsService = RecentConnectionsService();
-    // Initialize persistence for recent connections
     await _recentConnectionsService.initialize();
     _initMessagingAndNetwork(deviceName);
     _deviceName = deviceName;
@@ -57,7 +82,6 @@ class _MainAppState extends State<MainApp> {
         try {
           final devId = message['deviceId'] as String;
           final devName = (message['deviceName'] as String?) ?? devId;
-          // Remember device names for disconnect notifications
           _deviceNameMap[devId] = devName;
 
           _messagingService.addMessage(
@@ -73,25 +97,15 @@ class _MainAppState extends State<MainApp> {
           );
         } catch (_) {}
       },
-
-      onDeviceConnected: (deviceId) {
-        // placeholder: roomService will be updated by LocalNetworkService on register
-      },
-
-      onDeviceDisconnected: (deviceId) {
-        // Store for later use in ChatScreen
-        // (ChatScreen will handle the UI popup on host side)
-      },
-
+      onDeviceConnected: (deviceId) {},
+      onDeviceDisconnected: (deviceId) {},
       onVisitorJoined: (deviceName) {
-        // Track visitors joining our rooms
         _recentConnectionsService.addVisitor(deviceName);
       },
     );
   }
 
   String _getDeviceIdentifier() {
-    // Detect device type and name
     if (Platform.isAndroid) {
       return 'Android Device';
     } else if (Platform.isWindows) {
@@ -108,7 +122,6 @@ class _MainAppState extends State<MainApp> {
 
   @override
   Widget build(BuildContext context) {
-    // If device name has been selected, show HomeScreen, otherwise show DeviceNameScreen
     Widget homeWidget =
         _deviceName == null || _deviceName == _getDeviceIdentifier()
         ? DeviceNameScreen(
@@ -125,31 +138,50 @@ class _MainAppState extends State<MainApp> {
             roomService: _roomService,
             networkService: _networkService,
             recentConnectionsService: _recentConnectionsService,
+            themeProvider: _themeProvider,
           );
 
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Common Communication',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-      ),
-      home: homeWidget,
-      onGenerateRoute: (settings) {
-        if (settings.name == '/chat') {
-          final args = settings.arguments as Map<String, dynamic>;
-          return MaterialPageRoute(
-            builder: (context) => ChatScreen(
-              roomCode: args['roomCode'],
-              roomService: _roomService,
-              messagingService: _messagingService,
-              networkService: _networkService,
-              remoteSocket: args['remoteSocket'] as Socket?,
-              deviceNameMap: _deviceNameMap,
+    return ListenableBuilder(
+      listenable: _themeProvider,
+      builder: (context, _) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Common Communication',
+          themeMode: _themeProvider.themeMode,
+          theme: ThemeData(
+            useMaterial3: true,
+            brightness: Brightness.light,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.blue,
+              brightness: Brightness.light,
             ),
-          );
-        }
-        return null;
+          ),
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            brightness: Brightness.dark,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.blue,
+              brightness: Brightness.dark,
+            ),
+          ),
+          home: homeWidget,
+          onGenerateRoute: (settings) {
+            if (settings.name == '/chat') {
+              final args = settings.arguments as Map<String, dynamic>;
+              return MaterialPageRoute(
+                builder: (context) => ChatScreen(
+                  roomCode: args['roomCode'],
+                  roomService: _roomService,
+                  messagingService: _messagingService,
+                  networkService: _networkService,
+                  remoteSocket: args['remoteSocket'] as Socket?,
+                  deviceNameMap: _deviceNameMap,
+                ),
+              );
+            }
+            return null;
+          },
+        );
       },
     );
   }

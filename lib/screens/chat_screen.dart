@@ -54,21 +54,21 @@ class _ChatScreenState extends State<ChatScreen> {
       {}; // fileId -> FileTransfer for receiving
   final Map<String, double> _outgoingProgress =
       {}; // fileId -> upload progress (0.0 to 1.0)
-    Future<void> _remoteWriteQueue = Future.value();
+  Future<void> _remoteWriteQueue = Future.value();
 
-    Future<void> _enqueueRemoteWrite(String message) {
-      final prev = _remoteWriteQueue;
-      final next = prev.then((_) async {
-        try {
-          widget.remoteSocket!.write(message);
-          await widget.remoteSocket!.flush();
-        } catch (e) {
-          print('Remote socket write error: $e');
-        }
-      });
-      _remoteWriteQueue = next.catchError((_) {});
-      return next;
-    }
+  Future<void> _enqueueRemoteWrite(String message) {
+    final prev = _remoteWriteQueue;
+    final next = prev.then((_) async {
+      try {
+        widget.remoteSocket!.write(message);
+        await widget.remoteSocket!.flush();
+      } catch (e) {
+        print('Remote socket write error: $e');
+      }
+    });
+    _remoteWriteQueue = next.catchError((_) {});
+    return next;
+  }
 
   @override
   void initState() {
@@ -214,8 +214,7 @@ class _ChatScreenState extends State<ChatScreen> {
           } catch (e) {
             print('Error processing fileshare_start: $e');
           }
-        } else if (roomCode == widget.roomCode &&
-            type == 'fileshare_chunk') {
+        } else if (roomCode == widget.roomCode && type == 'fileshare_chunk') {
           // Chunk of file data
           try {
             final metadata = jsonDecode(content) as Map<String, dynamic>;
@@ -314,8 +313,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 );
 
                 // Get sender device name
-                final senderName =
-                    widget.deviceNameMap[deviceId] ?? deviceId;
+                final senderName = widget.deviceNameMap[deviceId] ?? deviceId;
 
                 // Add file message to storage
                 widget.messagingService.addMessage(
@@ -468,7 +466,8 @@ class _ChatScreenState extends State<ChatScreen> {
         final mimeType = _fileService.getMimeType(fileName);
 
         // Generate unique file ID for this transfer
-        final fileId = '${DateTime.now().millisecondsSinceEpoch}_${fileName.hashCode}';
+        final fileId =
+            '${DateTime.now().millisecondsSinceEpoch}_${fileName.hashCode}';
 
         // Create file message metadata
         final fileMessage = Message(
@@ -531,8 +530,7 @@ class _ChatScreenState extends State<ChatScreen> {
     List<int> fileBytes,
   ) async {
     try {
-      final int totalChunks =
-          (fileBytes.length + chunkSize - 1) ~/ chunkSize;
+      final int totalChunks = (fileBytes.length + chunkSize - 1) ~/ chunkSize;
       _outgoingProgress[fileId] = 0.0;
 
       // Send start message with file metadata
@@ -629,109 +627,113 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final room = widget.roomService.getCurrentRoom();
     final connectedDevices = widget.roomService.getConnectedDevices();
-
     return WillPopScope(
       onWillPop: () async {
         _leaveRoom();
         return false;
       },
       child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.background,
         appBar: AppBar(
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          elevation: 1,
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          foregroundColor: Theme.of(context).colorScheme.onSurface,
+          title: Row(
             children: [
-              const Text('Room'),
-              Text(
-                'Code: ${widget.roomCode}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.normal,
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                child: Text(
+                  widget.roomCode.isNotEmpty
+                      ? widget.roomCode[0].toUpperCase()
+                      : 'R',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Room • ${widget.roomCode}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${connectedDevices.length} device${connectedDevices.length != 1 ? 's' : ''}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
           actions: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Center(
-                child: Text(
-                  '${connectedDevices.length} device${connectedDevices.length != 1 ? 's' : ''}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ),
+            IconButton(
+              icon: const Icon(Icons.info_outline),
+              onPressed: () {
+                // show room details
+                showModalBottomSheet(
+                  context: context,
+                  builder: (_) => Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Room Code',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        SelectableText(widget.roomCode),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Connected Devices',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 80,
+                          child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: connectedDevices.length,
+                            itemBuilder: (ctx, i) {
+                              final d = connectedDevices[i];
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8.0),
+                                child: Chip(
+                                  avatar: Icon(
+                                    d.type == 'phone'
+                                        ? Icons.smartphone
+                                        : Icons.desktop_mac,
+                                    size: 18,
+                                  ),
+                                  label: Text(d.name),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         ),
         body: Column(
           children: [
-            // Connected Devices Section
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Text(
-                      'Connected Devices',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                  ),
-                  SizedBox(
-                    height: 80,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                      scrollDirection: Axis.horizontal,
-                      itemCount: connectedDevices.length,
-                      itemBuilder: (context, index) {
-                        final device = connectedDevices[index];
-                        final isCurrentDevice =
-                            device.id == widget.roomService.currentDeviceId;
-
-                        return Card(
-                          color: isCurrentDevice
-                              ? Colors.blue.shade50
-                              : Colors.grey.shade50,
-                          child: Padding(
-                            padding: const EdgeInsets.all(12.0),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  device.type == 'phone'
-                                      ? Icons.smartphone
-                                      : Icons.desktop_mac,
-                                  color: device.isActive
-                                      ? Colors.green
-                                      : Colors.grey,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  device.name,
-                                  style: const TextStyle(fontSize: 10),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                if (isCurrentDevice)
-                                  const Text(
-                                    '(You)',
-                                    style: TextStyle(
-                                      fontSize: 8,
-                                      color: Colors.blue,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(),
-
-            // Messages Section
             Expanded(
               child: _messages.isEmpty
                   ? Center(
@@ -740,28 +742,27 @@ class _ChatScreenState extends State<ChatScreen> {
                         children: [
                           Icon(
                             Icons.chat_bubble_outline,
-                            size: 48,
-                            color: Colors.grey.shade300,
+                            size: 64,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onBackground.withOpacity(0.12),
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 18),
                           Text(
                             'No messages yet',
-                            style: TextStyle(color: Colors.grey.shade500),
+                            style: Theme.of(context).textTheme.titleMedium,
                           ),
                           const SizedBox(height: 8),
                           Text(
                             'Send the first message to get started',
-                            style: TextStyle(
-                              color: Colors.grey.shade400,
-                              fontSize: 12,
-                            ),
+                            style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
                       ),
                     )
                   : ListView.builder(
                       reverse: true,
-                      padding: const EdgeInsets.all(16.0),
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
                       itemCount: _messages.length,
                       itemBuilder: (context, index) {
                         final message = _messages[_messages.length - 1 - index];
@@ -769,135 +770,177 @@ class _ChatScreenState extends State<ChatScreen> {
                             message.senderDeviceId ==
                             widget.roomService.currentDeviceId;
 
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12.0),
-                          child: Align(
-                            alignment: isCurrentUser
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
-                            child: Column(
-                              crossAxisAlignment: isCurrentUser
-                                  ? CrossAxisAlignment.end
-                                  : CrossAxisAlignment.start,
-                              children: [
-                                if (!isCurrentUser)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 4.0),
+                        // Date separator logic: show a date header when the previous message is on a different day
+                        final showDateSeparator =
+                            index == 0 ||
+                            !_isSameDay(
+                              message.timestamp,
+                              _messages[_messages.length - index].timestamp,
+                            );
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (showDateSeparator)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8.0,
+                                ),
+                                child: Center(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.surfaceVariant,
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
                                     child: Text(
-                                      message.senderDeviceName,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600,
+                                      DateFormat.yMMMd().format(
+                                        message.timestamp,
                                       ),
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
                                     ),
                                   ),
-                                Container(
-                                  constraints: BoxConstraints(
-                                    maxWidth:
-                                        MediaQuery.of(context).size.width * 0.7,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isCurrentUser
-                                        ? Colors.blue
-                                        : Colors.grey.shade300,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 10,
-                                  ),
-                  child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        // Handle file messages differently
-                        if (message.type == 'file')
-                          _buildFileMessageContent(message)
-                        else
-                          Text(
-                            message.content,
-                            style: TextStyle(
-                              color: isCurrentUser
-                                  ? Colors.white
-                                  : Colors.black,
-                            ),
-                          ),
-                        const SizedBox(height: 4),
-                        Text(
-                          DateFormat(
-                            'HH:mm',
-                          ).format(message.timestamp),
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: isCurrentUser
-                                ? Colors.white70
-                                : Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
                                 ),
-                              ],
+                              ),
+                            Align(
+                              alignment: isCurrentUser
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth:
+                                      MediaQuery.of(context).size.width * 0.78,
+                                ),
+                                child: _buildMessageBubble(
+                                  message,
+                                  isCurrentUser,
+                                ),
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 8),
+                          ],
                         );
                       },
                     ),
             ),
 
-            // Message Input Section
-            Container(
-              padding: const EdgeInsets.all(12.0),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                border: Border(top: BorderSide(color: Colors.grey.shade200)),
-              ),
-              child: SafeArea(
-                child: Row(
-                  children: [
-                    // File picker button
-                    CircleAvatar(
-                      backgroundColor: Colors.green,
-                      child: IconButton(
-                        icon: const Icon(
-                          Icons.attach_file,
-                          color: Colors.white,
-                        ),
+            // Composer
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: Material(
+                  elevation: 2,
+                  borderRadius: BorderRadius.circular(28),
+                  color: Theme.of(context).colorScheme.surface,
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.add_circle_outline),
                         onPressed: _isLoadingFile ? null : _pickAndSendFile,
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _messageController,
-                        decoration: InputDecoration(
-                          hintText: 'Type a message...',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(24),
+                      Expanded(
+                        child: TextField(
+                          controller: _messageController,
+                          decoration: InputDecoration(
+                            hintText: 'Type a message',
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 14,
+                              horizontal: 8,
+                            ),
                           ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
+                          minLines: 1,
+                          maxLines: 6,
                         ),
-                        maxLines: null,
-                        enabled: !_isLoadingFile,
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    CircleAvatar(
-                      backgroundColor: Colors.blue,
-                      child: IconButton(
-                        icon: const Icon(Icons.send, color: Colors.white),
-                        onPressed: _isLoadingFile ? null : _sendMessage,
+                      IconButton(
+                        icon: const Icon(Icons.insert_emoticon_outlined),
+                        onPressed: () {},
                       ),
-                    ),
-                  ],
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6.0),
+                        child: FloatingActionButton(
+                          mini: true,
+                          elevation: 0,
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.primary,
+                          onPressed: _isLoadingFile ? null : _sendMessage,
+                          child: const Icon(Icons.send, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  Widget _buildMessageBubble(Message message, bool isCurrentUser) {
+    final bg = isCurrentUser
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.surfaceVariant;
+    final textColor = isCurrentUser
+        ? Theme.of(context).colorScheme.onPrimary
+        : Theme.of(context).colorScheme.onSurfaceVariant;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(16),
+          topRight: const Radius.circular(16),
+          bottomLeft: Radius.circular(isCurrentUser ? 16 : 4),
+          bottomRight: Radius.circular(isCurrentUser ? 4 : 16),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!isCurrentUser)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6.0),
+              child: Text(
+                message.senderDeviceName,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withOpacity(0.7),
+                ),
+              ),
+            ),
+          if (message.type == 'file')
+            _buildFileMessageContent(message)
+          else
+            Text(message.content, style: TextStyle(color: textColor)),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.bottomRight,
+            child: Text(
+              DateFormat('HH:mm').format(message.timestamp),
+              style: TextStyle(fontSize: 10, color: textColor.withOpacity(0.8)),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -970,8 +1013,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
                   value: transferProgress.progress,
-                  backgroundColor:
-                      isCurrentUser ? Colors.white24 : Colors.grey.shade400,
+                  backgroundColor: isCurrentUser
+                      ? Colors.white24
+                      : Colors.grey.shade400,
                   valueColor: AlwaysStoppedAnimation<Color>(
                     isCurrentUser ? Colors.white : Colors.blue,
                   ),
@@ -983,9 +1027,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 '${(transferProgress.progress * 100).toStringAsFixed(0)}%',
                 style: TextStyle(
                   fontSize: 11,
-                  color: isCurrentUser
-                      ? Colors.white70
-                      : Colors.grey.shade600,
+                  color: isCurrentUser ? Colors.white70 : Colors.grey.shade600,
                 ),
               ),
             ],
@@ -999,8 +1041,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
                   value: outgoingProgress,
-                  backgroundColor:
-                      isCurrentUser ? Colors.white24 : Colors.grey.shade400,
+                  backgroundColor: isCurrentUser
+                      ? Colors.white24
+                      : Colors.grey.shade400,
                   valueColor: AlwaysStoppedAnimation<Color>(
                     isCurrentUser ? Colors.white : Colors.blue,
                   ),
@@ -1012,9 +1055,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 '${(outgoingProgress * 100).toStringAsFixed(0)}%',
                 style: TextStyle(
                   fontSize: 11,
-                  color: isCurrentUser
-                      ? Colors.white70
-                      : Colors.grey.shade600,
+                  color: isCurrentUser ? Colors.white70 : Colors.grey.shade600,
                 ),
               ),
             ],
