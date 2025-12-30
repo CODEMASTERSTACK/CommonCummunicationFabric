@@ -23,12 +23,6 @@ A cross-platform local communication and messaging framework built with Flutter 
 - Cross-platform: Windows, macOS, Linux, iOS, Android, Web (best-effort)
 - Lightweight, modular services and providers
 
-## Badges & Icons
-- Platform badges: rendered above via shields.io
-- Use emojis for visual sections throughout the README to improve scannability.
-
----
-
 ## Architecture (High level)
 
 Below is how the app layers are organized:
@@ -38,18 +32,18 @@ Below is how the app layers are organized:
 │                   App (Flutter UI)                          │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐  │
-│  │ RoomService  │  │ Messaging    │  │ LocalNetwork    │  │
-│  │ (room        │  │ Service      │  │ Service (TCP)   │  │
-│  │  lifecycle)  │  │ (messages)   │  │                 │  │
-│  └──────────────┘  └──────────────┘  └─────────────────┘  │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐    │
+│  │ RoomService  │  │ Messaging    │  │ LocalNetwork    │    │
+│  │ (room        │  │ Service      │  │ Service (TCP/UDP)    │  
+│  │  lifecycle)  │  │ (messages)   │  │                 │    │
+│  └──────────────┘  └──────────────┘  └─────────────────┘    │
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
 │                    Peer Devices                             │
-│         (Phones / PCs / Laptops on LAN)                    │
+│         (Phones / PCs / Laptops on LAN)                     │
 ├─────────────────────────────────────────────────────────────┤
 │                  Optional Backend                           │
-│           (REST API / WebSocket / DB)                      │
+│           (REST API / WebSocket / DB)                       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -57,21 +51,21 @@ Below is how the app layers are organized:
 
 ```
 Device 1                  Device 2
-   │                         │
-   │─── Create Room ────────→ │
+   │                          │
+   │─── Create Room ────────  │
    │    (get 6-digit code)    │
-   │                         │
+   │                          │
    │   Start TCP Server       │
    │   Listening on port 5000 │
-   │                         │
+   │                          │
    │ ← ── Join with code ─ ←  │
-   │                         │
+   │                          │
    │  TCP Socket Connect      │
-   │ ◄─────────────────────► │
-   │                         │
-   │   Send Message       ← ← │
-   │ ─────────────────────→  │
-   │   Send Message           │
+   │ ◄─────────────────────►  │
+   │                          │
+   │      Send Message  ← ←   │
+   │ ─────────────────────→   │
+   │      Send Message        │
    │ ← ─────────────────────  │
 ```
 
@@ -208,7 +202,3 @@ Testing: Use platform-specific emulators or multiple devices on the same LAN to 
 ## License
 
 This project uses the MIT license. See [LICENSE](LICENSE) for details.
-
----
-
-If you'd like, I can also generate PNG/SVG architecture images, add local icons under `assets/images/`, or craft a short demo README badge set optimized for GitHub with images — tell me which you'd prefer.
