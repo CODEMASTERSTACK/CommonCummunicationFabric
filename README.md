@@ -31,11 +31,80 @@ A cross-platform local communication and messaging framework built with Flutter 
 
 ## Architecture (High level)
 
-Below are a compact architecture diagram and a short sequence flow (SVGs are stored in `assets/images/`).
+Below are a compact architecture diagram and a short sequence flow.
 
-<img src="assets/images/architecture.svg" alt="Architecture diagram" width="800" />
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="420" viewBox="0 0 1000 420">
+  <style>
+    .box { fill:#ffffff; stroke:#2b2b2b; stroke-width:2; rx:8; }
+    .title { font: bold 16px Arial; fill:#111; }
+    .label { font: 13px Arial; fill:#222; }
+    .small { font: 12px Arial; fill:#444; }
+    .arrow { stroke:#555; stroke-width:2; fill:none; marker-end: url(#arrowhead); }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#555" />
+    </marker>
+  </defs>
+  <rect x="40" y="40" width="220" height="120" class="box" />
+  <text x="150" y="70" text-anchor="middle" class="title">App (Flutter)</text>
+  <text x="150" y="95" text-anchor="middle" class="small">UI & routing</text>
+  <rect x="320" y="20" width="320" height="160" class="box" />
+  <text x="480" y="45" text-anchor="middle" class="title">Service Layer</text>
+  <rect x="350" y="70" width="120" height="70" class="box" />
+  <text x="410" y="95" text-anchor="middle" class="label">RoomService</text>
+  <text x="410" y="112" text-anchor="middle" class="small">room lifecycle</text>
+  <rect x="485" y="70" width="120" height="70" class="box" />
+  <text x="545" y="95" text-anchor="middle" class="label">MessagingService</text>
+  <text x="545" y="112" text-anchor="middle" class="small">message store</text>
+  <rect x="620" y="70" width="120" height="70" class="box" />
+  <text x="680" y="95" text-anchor="middle" class="label">LocalNetworkService</text>
+  <text x="680" y="112" text-anchor="middle" class="small">TCP sockets</text>
+  <path class="arrow" d="M260 100 L350 100" />
+  <path class="arrow" d="M260 115 L485 115" />
+  <path class="arrow" d="M260 130 L680 130" />
+  <rect x="320" y="220" width="200" height="120" class="box" />
+  <text x="420" y="250" text-anchor="middle" class="title">Peer Devices</text>
+  <text x="420" y="275" text-anchor="middle" class="small">Phones / PCs / Laptops</text>
+  <rect x="700" y="240" width="220" height="80" class="box" />
+  <text x="810" y="265" text-anchor="middle" class="title">Optional Backend</text>
+  <text x="810" y="285" text-anchor="middle" class="small">REST / WebSocket / DB</text>
+  <path class="arrow" d="M740 110 L740 220 L540 220" />
+  <path class="arrow" d="M620 190 L420 220" />
+  <path class="arrow" d="M640 160 L740 260" />
+  <text x="500" y="390" text-anchor="middle" class="small">Architecture: App → Services → Network → Peers (backend optional)</text>
+</svg>
 
-<img src="assets/images/sequence.svg" alt="Sequence diagram" width="800" />
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="320" viewBox="0 0 1000 320">
+  <style>
+    .box { fill:#fff; stroke:#2b2b2b; stroke-width:1.6; rx:6; }
+    .title { font: bold 14px Arial; fill:#111; }
+    .label { font: 13px Arial; fill:#222; }
+    .arrow { stroke:#2b2b2b; stroke-width:2; fill:none; marker-end:url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2b2b2b" />
+    </marker>
+  </defs>
+  <rect x="40" y="40" width="180" height="40" class="box" />
+  <text x="130" y="65" text-anchor="middle" class="title">HomeScreen</text>
+  <rect x="260" y="40" width="220" height="40" class="box" />
+  <text x="370" y="65" text-anchor="middle" class="title">RoomService</text>
+  <rect x="520" y="40" width="220" height="40" class="box" />
+  <text x="630" y="65" text-anchor="middle" class="title">LocalNetworkService</text>
+  <rect x="760" y="40" width="180" height="40" class="box" />
+  <text x="850" y="65" text-anchor="middle" class="title">Peer Device</text>
+  <text x="130" y="110" text-anchor="middle" class="label">1. Create Room</text>
+  <path class="arrow" d="M220 80 L260 80" />
+  <text x="370" y="140" text-anchor="middle" class="label">2. Generate Code & start server</text>
+  <path class="arrow" d="M480 80 L520 80" />
+  <text x="630" y="200" text-anchor="middle" class="label">3. Device joins with code → connect socket</text>
+  <path class="arrow" d="M740 80 L760 80" />
+  <path class="arrow" d="M840 140 L700 140 L640 140 L420 140 L320 140" />
+  <text x="570" y="120" text-anchor="middle" class="label">Message broadcast (server → clients)</text>
+  <text x="500" y="300" text-anchor="middle" class="small">Sequence: create → start server → clients connect → messages broadcast</text>
+</svg>
 
 ### Message Flow Details
 
