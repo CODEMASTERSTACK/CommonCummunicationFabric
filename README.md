@@ -2,7 +2,7 @@
   README for common_com
   Generated: comprehensive, structured, with Mermaid diagrams for GitHub
 -->
-# <img src="https://i.ibb.co/8nM8XtkH/CCF.png" alt="CCF Logo" width="50" height="50" style="vertical-align: middle; margin-right: 10px;" /> Common Communication Fabric
+# <img src="https://i.ibb.co/C3TY9gY8/Image-Compressor-org-48x48-common-com.png" alt="CCF Logo" width="50" height="50" style="vertical-align: middle; margin-right: 10px;" /> Common Communication Fabric
 
 [![Flutter](https://img.shields.io/badge/Flutter-Enabled-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Platform](https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20iOS%20%7C%20Android-blue)](#)
