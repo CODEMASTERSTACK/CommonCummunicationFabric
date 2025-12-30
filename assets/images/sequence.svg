@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="320" viewBox="0 0 1000 320">
+  <style>
+    .lane { fill:#f7f7f7; stroke:#ddd; }
+    .box { fill:#fff; stroke:#2b2b2b; stroke-width:1.6; rx:6; }
+    .title { font: bold 14px Arial; fill:#111; }
+    .label { font: 13px Arial; fill:#222; }
+    .arrow { stroke:#2b2b2b; stroke-width:2; fill:none; marker-end:url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2b2b2b" />
+    </marker>
+  </defs>
+
+  <!-- lanes -->
+  <rect x="40" y="40" width="180" height="40" class="box" />
+  <text x="130" y="65" text-anchor="middle" class="title">HomeScreen</text>
+
+  <rect x="260" y="40" width="220" height="40" class="box" />
+  <text x="370" y="65" text-anchor="middle" class="title">RoomService</text>
+
+  <rect x="520" y="40" width="220" height="40" class="box" />
+  <text x="630" y="65" text-anchor="middle" class="title">LocalNetworkService</text>
+
+  <rect x="760" y="40" width="180" height="40" class="box" />
+  <text x="850" y="65" text-anchor="middle" class="title">Peer Device</text>
+
+  <!-- steps with arrows -->
+  <text x="130" y="110" text-anchor="middle" class="label">1. Create Room</text>
+  <path class="arrow" d="M220 80 L260 80" />
+  <text x="370" y="140" text-anchor="middle" class="label">2. Generate Code & start server</text>
+  <path class="arrow" d="M480 80 L520 80" />
+  <text x="630" y="200" text-anchor="middle" class="label">3. Device joins with code → connect socket</text>
+  <path class="arrow" d="M740 80 L760 80" />
+
+  <!-- message flow -->
+  <path class="arrow" d="M840 140 L700 140 L640 140 L420 140 L320 140" />
+  <text x="570" y="120" text-anchor="middle" class="label">Message broadcast (server → clients)</text>
+
+  <!-- footer -->
+  <text x="500" y="300" text-anchor="middle" class="small">Sequence: create → start server → clients connect → messages broadcast</text>
+</svg>
