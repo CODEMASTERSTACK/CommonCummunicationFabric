@@ -33,9 +33,9 @@ A cross-platform local communication and messaging framework built with Flutter 
 
 Below are a compact architecture diagram and a short sequence flow (SVGs are stored in `assets/images/`).
 
-![Architecture diagram](assets/images/architecture.svg)
+<img src="assets/images/architecture.svg" alt="Architecture diagram" width="800" />
 
-![Sequence diagram](assets/images/sequence.svg)
+<img src="assets/images/sequence.svg" alt="Sequence diagram" width="800" />
 
 ### Message Flow Details
 
