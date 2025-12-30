@@ -1,24 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'dart:io';
+import 'dart:io' as io;
+import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import '../models/message.dart';
 import '../models/device.dart';
 import '../models/file_transfer.dart';
+import '../models/saved_message.dart';
 import '../services/messaging_service.dart';
 import '../services/room_service.dart';
 import '../services/local_network_service.dart';
 import '../services/file_service.dart';
+import '../services/saved_messages_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomCode;
   final RoomService roomService;
   final MessagingService messagingService;
   final LocalNetworkService networkService;
-  final Socket? remoteSocket; // Connection to remote server if joined remotely
+  final io.Socket?
+  remoteSocket; // Connection to remote server if joined remotely
   final Map<String, String> deviceNameMap; // deviceId -> deviceName mapping
+  final SavedMessagesService savedMessagesService;
 
   const ChatScreen({
     Key? key,
@@ -28,6 +33,7 @@ class ChatScreen extends StatefulWidget {
     required this.networkService,
     this.remoteSocket,
     this.deviceNameMap = const {},
+    required this.savedMessagesService,
   }) : super(key: key);
 
   @override
@@ -46,6 +52,7 @@ class _ChatScreenState extends State<ChatScreen> {
   _previousDeviceIds; // Track devices to detect disconnects on host
   final FileService _fileService = FileService();
   bool _isLoadingFile = false;
+  late Set<String> _savedMessageIds; // Track which messages are saved
 
   // File transfer state
   StringBuffer _messageBuffer =
@@ -75,6 +82,8 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
     _previousDeviceIds = {}; // Initialize to detect disconnects
+    _savedMessageIds = {}; // Initialize saved message IDs
+    _loadSavedMessageIds();
     // If we're connected remotely, listen for incoming messages
     if (widget.remoteSocket != null) {
       _listenForRemoteMessages();
@@ -443,7 +452,7 @@ class _ChatScreenState extends State<ChatScreen> {
           return;
         }
 
-        final fileObj = File(filePath);
+        final fileObj = io.File(filePath);
         final fileSize = await fileObj.length();
 
         // Validate file size (100MB limit)
@@ -621,6 +630,99 @@ class _ChatScreenState extends State<ChatScreen> {
   void _leaveRoom() {
     widget.roomService.leaveRoom();
     Navigator.of(context).pop();
+  }
+
+  void _loadSavedMessageIds() async {
+    final savedMessages = widget.savedMessagesService.getSavedMessages();
+    setState(() {
+      _savedMessageIds = savedMessages.map((m) => m.id).toSet();
+    });
+  }
+
+  Future<void> _saveMessage(Message message) async {
+    try {
+      String? savedFilePath = message.localFilePath;
+
+      // If this is a file message and the file exists, copy it to saved files directory
+      if (message.type == 'file' && savedFilePath != null) {
+        final sourceFile = io.File(savedFilePath);
+
+        // Check if source file exists
+        if (await sourceFile.exists()) {
+          // Get the saved files directory
+          final appDocDir = await getApplicationDocumentsDirectory();
+          final savedFilesDir = io.Directory('${appDocDir.path}/saved_files');
+
+          // Create directory if it doesn't exist
+          if (!await savedFilesDir.exists()) {
+            await savedFilesDir.create(recursive: true);
+          }
+
+          // Create destination path with unique name
+          final fileName = message.fileName ?? 'file';
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          final uniqueFileName = '${timestamp}_$fileName';
+          final destPath = '${savedFilesDir.path}/$uniqueFileName';
+
+          // Copy file to saved files directory
+          final destFile = await sourceFile.copy(destPath);
+          savedFilePath = destFile.path;
+
+          print('File copied to saved files: $savedFilePath');
+        }
+      }
+
+      final savedMessage = SavedMessage(
+        id: message.id,
+        content: message.content,
+        senderDeviceName: message.senderDeviceName,
+        type: message.type,
+        fileName: message.fileName,
+        fileMimeType: message.fileMimeType,
+        fileSize: message.fileSize,
+        localFilePath: savedFilePath, // Use the copied path or original path
+      );
+
+      await widget.savedMessagesService.saveMessage(savedMessage);
+      setState(() {
+        _savedMessageIds.add(message.id);
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Message saved'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error saving message: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving message: $e'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _unsaveMessage(String messageId) async {
+    await widget.savedMessagesService.unsaveMessage(messageId);
+    setState(() {
+      _savedMessageIds.remove(messageId);
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Message removed from saved'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   @override
@@ -869,12 +971,16 @@ class _ChatScreenState extends State<ChatScreen> {
                         padding: const EdgeInsets.only(right: 6.0),
                         child: FloatingActionButton(
                           mini: true,
-                          elevation: 0,
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.primary,
+                          elevation: 2,
+                          backgroundColor: const Color(
+                            0xFF1E3A8A,
+                          ), // Darker blue matching outgoing messages
                           onPressed: _isLoadingFile ? null : _sendMessage,
-                          child: const Icon(Icons.send, color: Colors.white),
+                          child: Icon(
+                            Icons.send,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                         ),
                       ),
                     ],
@@ -894,11 +1000,14 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildMessageBubble(Message message, bool isCurrentUser) {
     final bg = isCurrentUser
-        ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).colorScheme.surfaceVariant;
+        ? const Color(0xFF1E3A8A) // Darker blue for outgoing messages
+        : const Color(
+            0xFF2C3E50,
+          ); // Dark slate background for incoming messages
     final textColor = isCurrentUser
-        ? Theme.of(context).colorScheme.onPrimary
-        : Theme.of(context).colorScheme.onSurfaceVariant;
+        ? Colors
+              .white // White text on darker blue
+        : Colors.white; // White text for better visibility on dark background
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 2),
@@ -933,12 +1042,43 @@ class _ChatScreenState extends State<ChatScreen> {
           else
             Text(message.content, style: TextStyle(color: textColor)),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.bottomRight,
-            child: Text(
-              DateFormat('HH:mm').format(message.timestamp),
-              style: TextStyle(fontSize: 10, color: textColor.withOpacity(0.8)),
-            ),
+          // Message footer with timestamp and save buttons
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              Align(
+                alignment: Alignment.bottomLeft,
+                child: Text(
+                  DateFormat('HH:mm').format(message.timestamp),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: textColor.withOpacity(0.8),
+                  ),
+                ),
+              ),
+              // Save/Unsave buttons
+              SizedBox(
+                height: 24,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GestureDetector(
+                      onTap: _savedMessageIds.contains(message.id)
+                          ? () => _unsaveMessage(message.id)
+                          : () => _saveMessage(message),
+                      child: Icon(
+                        _savedMessageIds.contains(message.id)
+                            ? Icons.bookmark
+                            : Icons.bookmark_outline,
+                        size: 16,
+                        color: textColor.withOpacity(0.7),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -971,7 +1111,7 @@ class _ChatScreenState extends State<ChatScreen> {
             children: [
               Icon(
                 _getFileIcon(message.fileMimeType),
-                color: isCurrentUser ? Colors.white : Colors.blue,
+                color: isCurrentUser ? Colors.white : const Color(0xFF3498DB),
                 size: 24,
               ),
               const SizedBox(width: 8),
@@ -984,7 +1124,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: isCurrentUser ? Colors.white : Colors.black,
+                        color: isCurrentUser ? Colors.white : Colors.white,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -994,7 +1134,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         fontSize: 12,
                         color: isCurrentUser
                             ? Colors.white70
-                            : Colors.grey.shade600,
+                            : Colors.grey.shade300,
                       ),
                     ),
                   ],
@@ -1015,9 +1155,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   value: transferProgress.progress,
                   backgroundColor: isCurrentUser
                       ? Colors.white24
-                      : Colors.grey.shade400,
+                      : Colors.grey.shade600,
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    isCurrentUser ? Colors.white : Colors.blue,
+                    isCurrentUser ? Colors.white : const Color(0xFF3498DB),
                   ),
                   minHeight: 4,
                 ),
@@ -1027,7 +1167,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 '${(transferProgress.progress * 100).toStringAsFixed(0)}%',
                 style: TextStyle(
                   fontSize: 11,
-                  color: isCurrentUser ? Colors.white70 : Colors.grey.shade600,
+                  color: isCurrentUser ? Colors.white70 : Colors.grey.shade300,
                 ),
               ),
             ],
@@ -1043,9 +1183,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   value: outgoingProgress,
                   backgroundColor: isCurrentUser
                       ? Colors.white24
-                      : Colors.grey.shade400,
+                      : Colors.grey.shade600,
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    isCurrentUser ? Colors.white : Colors.blue,
+                    isCurrentUser ? Colors.white : const Color(0xFF3498DB),
                   ),
                   minHeight: 4,
                 ),
@@ -1055,7 +1195,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 '${(outgoingProgress * 100).toStringAsFixed(0)}%',
                 style: TextStyle(
                   fontSize: 11,
-                  color: isCurrentUser ? Colors.white70 : Colors.grey.shade600,
+                  color: isCurrentUser ? Colors.white70 : Colors.grey.shade300,
                 ),
               ),
             ],

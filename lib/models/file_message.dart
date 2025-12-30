@@ -5,11 +5,11 @@ class FileMessage {
   final String senderDeviceId;
   final String senderDeviceName;
   final String fileName;
-  final String fileMimeType; // e.g., image/png, application/pdf
+  final String fileMimeType; 
   final int fileSize;
   final DateTime timestamp;
   final String roomCode;
-  final String? localPath; // Path where file was saved locally
+  final String? localPath; 
 
   FileMessage({
     String? id,

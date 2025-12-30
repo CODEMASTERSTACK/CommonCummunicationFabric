@@ -9,6 +9,7 @@ import 'services/messaging_service.dart';
 import 'services/local_network_service.dart';
 import 'services/recent_connections_service.dart';
 import 'services/file_service.dart';
+import 'services/saved_messages_service.dart';
 
 void main() {
   runApp(const MainApp());
@@ -51,6 +52,7 @@ class _MainAppState extends State<MainApp> {
   late LocalNetworkService _networkService;
   late RecentConnectionsService _recentConnectionsService;
   late FileService _fileService;
+  late SavedMessagesService _savedMessagesService;
   late ThemeProvider _themeProvider;
   String? _deviceName;
   final Map<String, String> _deviceNameMap = {};
@@ -66,7 +68,9 @@ class _MainAppState extends State<MainApp> {
     String deviceName = _getDeviceIdentifier();
     _roomService = RoomService(deviceName: deviceName);
     _recentConnectionsService = RecentConnectionsService();
+    _savedMessagesService = SavedMessagesService();
     await _recentConnectionsService.initialize();
+    await _savedMessagesService.initialize();
     _initMessagingAndNetwork(deviceName);
     _deviceName = deviceName;
   }
@@ -138,6 +142,7 @@ class _MainAppState extends State<MainApp> {
             roomService: _roomService,
             networkService: _networkService,
             recentConnectionsService: _recentConnectionsService,
+            savedMessagesService: _savedMessagesService,
             themeProvider: _themeProvider,
           );
 
@@ -176,6 +181,7 @@ class _MainAppState extends State<MainApp> {
                   networkService: _networkService,
                   remoteSocket: args['remoteSocket'] as Socket?,
                   deviceNameMap: _deviceNameMap,
+                  savedMessagesService: _savedMessagesService,
                 ),
               );
             }

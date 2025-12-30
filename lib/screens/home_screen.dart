@@ -5,13 +5,16 @@ import 'package:flutter/services.dart';
 import '../services/room_service.dart';
 import '../services/local_network_service.dart';
 import '../services/recent_connections_service.dart';
+import '../services/saved_messages_service.dart';
 import 'settings_screen.dart';
+import 'saved_content_screen.dart';
 import '../main.dart';
 
 class HomeScreen extends StatefulWidget {
   final RoomService roomService;
   final LocalNetworkService networkService;
   final RecentConnectionsService recentConnectionsService;
+  final SavedMessagesService savedMessagesService;
   final ThemeProvider? themeProvider;
 
   const HomeScreen({
@@ -19,6 +22,7 @@ class HomeScreen extends StatefulWidget {
     required this.roomService,
     required this.networkService,
     required this.recentConnectionsService,
+    required this.savedMessagesService,
     this.themeProvider,
   }) : super(key: key);
 
@@ -147,7 +151,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted && !connected) {
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Room code not found or expired';
+        _errorMessage = 'No room available with this room code';
       });
     }
   }
@@ -291,7 +295,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 28),
 
-                // Action cards: Start a Room & Join Room
+                // Action cards: Start a Room & Join Room & Saved Content
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final isNarrow = constraints.maxWidth < 700;
@@ -301,16 +305,35 @@ class _HomeScreenState extends State<HomeScreen> {
                               _buildStartCard(context, isDarkMode),
                               const SizedBox(height: 12),
                               _buildJoinCard(context, isDarkMode),
+                              const SizedBox(height: 12),
+                              _buildSavedContentCard(context, isDarkMode),
                             ],
                           )
-                        : Row(
+                        : Column(
                             children: [
-                              Expanded(
-                                child: _buildStartCard(context, isDarkMode),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildStartCard(context, isDarkMode),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _buildJoinCard(context, isDarkMode),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _buildJoinCard(context, isDarkMode),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildSavedContentCard(
+                                      context,
+                                      isDarkMode,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(child: SizedBox()),
+                                ],
                               ),
                             ],
                           );
@@ -610,6 +633,76 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSavedContentCard(BuildContext context, bool isDarkMode) {
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => SavedContentScreen(
+              savedMessagesService: widget.savedMessagesService,
+            ),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? Colors.grey.shade900 : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDarkMode ? Colors.grey.shade800 : Colors.grey.shade200,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.bookmark,
+                size: 20,
+                color: Colors.amber.shade600,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Saved Content',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Bookmarked messages & files',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: isDarkMode
+                          ? Colors.grey.shade500
+                          : Colors.grey.shade600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: isDarkMode ? Colors.grey.shade600 : Colors.grey.shade400,
+            ),
+          ],
+        ),
       ),
     );
   }
