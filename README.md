@@ -37,30 +37,25 @@ Below are a compact architecture diagram and a short sequence flow (SVGs are sto
 
 ![Sequence diagram](assets/images/sequence.svg)
 
-```mermaid
-graph LR
-  A[Mobile / Desktop App (Flutter)] --> B(Local Network Service)
-  A --> C(Backend Server - optional)
-  B --> D[Peer Devices]
-  B --> E[Local Storage]
-  C --> F[Remote DB / Analytics]
-```
+### Message Flow Details
 
 ### Sequence (Discovery → Transfer)
 
 ```mermaid
 sequenceDiagram
-  participant App
-  participant LocalNet
-  participant Peer
-  participant Backend
-  App->>LocalNet: Start discovery (mDNS/UDP)
-  LocalNet->>Peer: Probe
-  Peer-->>LocalNet: Announce
-  LocalNet-->>App: Peer list
-  App->>Peer: Initiate handshake (secure channel)
-  App->>Peer: Transfer file / message (TCP/UDP)
-  App->>Backend: (optional) log event (HTTP)
+  participant User
+  participant App as App Layer
+  participant Room as RoomService
+  participant Net as Network
+  participant Peer as Peer Device
+  
+  User->>App: Create/Join Room
+  App->>Room: Initialize
+  Room->>Net: Start Server/Connect Client
+  Net->>Peer: TCP Handshake
+  Peer-->>Net: Connected
+  Net-->>App: Ready
+  App-->>User: Show Chat Screen
 ```
 
 ---
