@@ -550,6 +550,12 @@ class _ChatScreenState extends State<ChatScreen>
     try {
       final int totalChunks = (fileBytes.length + chunkSize - 1) ~/ chunkSize;
       _outgoingProgress[fileId] = 0.0;
+      // Initialize chunk counters and ensure UI updates immediately
+      setState(() {
+        _outgoingChunksSent[fileId] = 0;
+        _outgoingTotalChunks[fileId] = totalChunks;
+        _outgoingProgress[fileId] = 0.0;
+      });
 
       // Send start message with file metadata
       final startMetadata = {
