@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:convert';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:mime/mime.dart';
 
@@ -40,6 +42,33 @@ class FileService {
       return targetFile.path;
     } catch (e) {
       print('Error saving file: $e');
+      rethrow;
+    }
+  }
+
+  /// Save file by asking user where to store it (uses platform dialog on Android)
+  /// Returns the saved file path or null if cancelled.
+  Future<String?> saveReceivedFileWithPicker({
+    required String suggestedName,
+    required List<int> fileBytes,
+    String? mimeType,
+  }) async {
+    try {
+      // Use platform channel to ask native platform to show a save dialog
+      const channel = MethodChannel('common_com/file_saver');
+      final encoded = base64Encode(fileBytes);
+      final result = await channel.invokeMethod<String?>('saveFile', {
+        'fileName': suggestedName,
+        'bytes': encoded,
+        'mimeType': mimeType ?? getMimeType(suggestedName),
+      });
+
+      return result; // platform returns a uri or file path string or null
+    } on PlatformException catch (e) {
+      print('Platform error saving file with picker: $e');
+      rethrow;
+    } catch (e) {
+      print('Error saving file with picker: $e');
       rethrow;
     }
   }
