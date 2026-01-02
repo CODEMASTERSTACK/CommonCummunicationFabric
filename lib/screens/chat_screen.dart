@@ -40,7 +40,8 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen>
+  with SingleTickerProviderStateMixin {
   static const int maxFileSize = 100 * 1024 * 1024; // 100MB
   static const int chunkSize = 256 * 1024; // 256KB chunks
 
@@ -61,6 +62,9 @@ class _ChatScreenState extends State<ChatScreen> {
       {}; // fileId -> FileTransfer for receiving
   final Map<String, double> _outgoingProgress =
       {}; // fileId -> upload progress (0.0 to 1.0)
+  final Map<String, int> _outgoingChunksSent = {};
+  final Map<String, int> _outgoingTotalChunks = {};
+  late AnimationController _sendAnimationController;
   Future<void> _remoteWriteQueue = Future.value();
 
   Future<void> _enqueueRemoteWrite(String message) {
@@ -122,12 +126,16 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       });
     }
+    _sendAnimationController =
+        AnimationController(vsync: this, duration: const Duration(seconds: 2))
+          ..repeat();
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
     _messageController.dispose();
+    _sendAnimationController.dispose();
     super.dispose();
   }
 
@@ -595,9 +603,11 @@ class _ChatScreenState extends State<ChatScreen> {
           );
         }
 
-        // Update progress
+        // Update progress and chunk counters
         setState(() {
           _outgoingProgress[fileId] = (i + 1) / totalChunks;
+          _outgoingChunksSent[fileId] = i + 1;
+          _outgoingTotalChunks[fileId] = totalChunks;
         });
 
         // Add small delay to prevent overwhelming the socket
@@ -619,6 +629,14 @@ class _ChatScreenState extends State<ChatScreen> {
       }
 
       print('File $fileId sent in $totalChunks chunks');
+      // Clear counters after a short delay so UI can show 100%
+      Future.delayed(const Duration(milliseconds: 500), () {
+        setState(() {
+          _outgoingProgress.remove(fileId);
+          _outgoingChunksSent.remove(fileId);
+          _outgoingTotalChunks.remove(fileId);
+        });
+      });
     } catch (e) {
       print('Error sending file in chunks: $e');
       _outgoingProgress.remove(fileId);
@@ -1147,26 +1165,11 @@ class _ChatScreenState extends State<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: transferProgress.progress,
-                  backgroundColor: isCurrentUser
-                      ? Colors.white24
-                      : Colors.grey.shade600,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    isCurrentUser ? Colors.white : const Color(0xFF3498DB),
-                  ),
-                  minHeight: 4,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${(transferProgress.progress * 100).toStringAsFixed(0)}%',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: isCurrentUser ? Colors.white70 : Colors.grey.shade300,
-                ),
+              _buildSendingProgressBar(
+                progress: transferProgress.progress,
+                sent: transferProgress.chunksReceived,
+                total: transferProgress.totalChunks,
+                isCurrentUser: isCurrentUser,
               ),
             ],
           )
@@ -1175,26 +1178,11 @@ class _ChatScreenState extends State<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: outgoingProgress,
-                  backgroundColor: isCurrentUser
-                      ? Colors.white24
-                      : Colors.grey.shade600,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    isCurrentUser ? Colors.white : const Color(0xFF3498DB),
-                  ),
-                  minHeight: 4,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${(outgoingProgress * 100).toStringAsFixed(0)}%',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: isCurrentUser ? Colors.white70 : Colors.grey.shade300,
-                ),
+              _buildSendingProgressBar(
+                progress: outgoingProgress,
+                sent: _outgoingChunksSent[fileId] ?? ((outgoingProgress * 100).round()),
+                total: _outgoingTotalChunks[fileId] ?? 100,
+                isCurrentUser: isCurrentUser,
               ),
             ],
           ),
@@ -1219,6 +1207,146 @@ class _ChatScreenState extends State<ChatScreen> {
       return Icons.table_chart;
     }
     return Icons.attach_file;
+  }
+
+  Widget _buildSendingProgressBar({
+    required double progress,
+    required int sent,
+    required int total,
+    required bool isCurrentUser,
+  }) {
+    final bgColor = isCurrentUser ? Colors.white24 : Colors.grey.shade600;
+    final fillColor = isCurrentUser ? Colors.white : const Color(0xFF4FC3F7);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Animated progress bar
+        SizedBox(
+          height: 18,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Stack(
+              children: [
+                // background
+                Container(color: bgColor),
+                // filled portion
+                FractionallySizedBox(
+                  widthFactor: progress.clamp(0.0, 1.0),
+                  alignment: Alignment.centerLeft,
+                  child: Container(color: fillColor.withOpacity(0.16)),
+                ),
+                // moving shimmer overlay to indicate activity
+                Positioned.fill(
+                  child: AnimatedBuilder(
+                    animation: _sendAnimationController,
+                    builder: (context, child) {
+                      final anim = _sendAnimationController.value;
+                      return FractionallySizedBox(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: progress.clamp(0.0, 1.0),
+                        child: Transform.translate(
+                          offset: Offset(200 * (anim - 0.5), 0),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.transparent,
+                                  fillColor.withOpacity(0.25),
+                                  Colors.transparent,
+                                ],
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                                stops: const [0.0, 0.5, 1.0],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                // progress text centered
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                    child: Text(
+                      '${(progress * 100).toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isCurrentUser ? Colors.white : Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Chunk counters (styled boxes)
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.25),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    'SENT CHUNKS',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$sent',
+                    style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    'TOTAL CHUNKS',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$total',
+                    style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   void _openFile(String filePath) {
