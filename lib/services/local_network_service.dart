@@ -263,9 +263,10 @@ class LocalNetworkService {
 
               if (fileName != null) {
                 try {
-                  savedPath = await fileService.saveReceivedFile(
-                    fileName: fileName,
+                  savedPath = await fileService.saveReceivedFileWithPicker(
+                    suggestedName: fileName,
                     fileBytes: fileBytes,
+                    mimeType: mimeType,
                   );
                   print('File saved to: $savedPath');
                 } catch (e) {
@@ -314,9 +315,10 @@ class LocalNetworkService {
             if (base64Data.isNotEmpty) {
               try {
                 final fileBytes = base64Decode(base64Data);
-                savedPath = await fileService.saveReceivedFile(
-                  fileName: fileName,
+                savedPath = await fileService.saveReceivedFileWithPicker(
+                  suggestedName: fileName,
                   fileBytes: fileBytes,
+                  mimeType: mimeType,
                 );
                 print('File saved to: $savedPath');
               } catch (e) {

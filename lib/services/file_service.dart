@@ -54,21 +54,57 @@ class FileService {
     String? mimeType,
   }) async {
     try {
-      // Use platform channel to ask native platform to show a save dialog
-      const channel = MethodChannel('common_com/file_saver');
-      final encoded = base64Encode(fileBytes);
-      final result = await channel.invokeMethod<String?>('saveFile', {
-        'fileName': suggestedName,
-        'bytes': encoded,
-        'mimeType': mimeType ?? getMimeType(suggestedName),
-      });
+      // On Android, use the native save dialog implemented in MainActivity
+      if (Platform.isAndroid) {
+        try {
+          const channel = MethodChannel('common_com/file_saver');
+          final encoded = base64Encode(fileBytes);
+          final result = await channel.invokeMethod<String?>('saveFile', {
+            'fileName': suggestedName,
+            'bytes': encoded,
+            'mimeType': mimeType ?? getMimeType(suggestedName),
+          });
+          return result; // platform returns a uri or file path string or null
+        } on PlatformException catch (e) {
+          print('Platform error saving file with picker: $e');
+          // fall through to saving to downloads
+        }
+      }
 
-      return result; // platform returns a uri or file path string or null
-    } on PlatformException catch (e) {
-      print('Platform error saving file with picker: $e');
-      rethrow;
+      // Fallback for non-Android (desktop/ios): save to user's Downloads or Documents folder
+      String? downloadsPath;
+      final env = Platform.environment;
+      if (Platform.isWindows) {
+        final userProfile = env['USERPROFILE'];
+        if (userProfile != null) downloadsPath = '$userProfile\\Downloads';
+      } else {
+        final home = env['HOME'];
+        if (home != null) downloadsPath = '$home/Downloads';
+      }
+
+      Directory targetDir;
+      if (downloadsPath != null) {
+        targetDir = Directory(downloadsPath);
+        if (!await targetDir.exists()) {
+          targetDir = await getApplicationDocumentsDirectory();
+        }
+      } else {
+        targetDir = await getApplicationDocumentsDirectory();
+      }
+
+      String targetPath = '${targetDir.path}${Platform.pathSeparator}$suggestedName';
+      File targetFile = File(targetPath);
+      if (await targetFile.exists()) {
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final nameWithoutExt = suggestedName.split('.').first;
+        final ext = (suggestedName.contains('.') ? '.${suggestedName.split('.').last}' : '');
+        targetFile = File('${targetDir.path}${Platform.pathSeparator}${nameWithoutExt}_$timestamp$ext');
+      }
+
+      await targetFile.writeAsBytes(fileBytes);
+      return targetFile.path;
     } catch (e) {
-      print('Error saving file with picker: $e');
+      print('Error saving file with picker/fallback: $e');
       rethrow;
     }
   }

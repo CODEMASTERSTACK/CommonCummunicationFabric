@@ -261,10 +261,11 @@ class _ChatScreenState extends State<ChatScreen> {
               // Reassemble file
               final fileBytes = transfer.reassemble();
 
-              // Save file to local storage
-              final savedPath = await _fileService.saveReceivedFile(
-                fileName: transfer.fileName,
+              // Save file to local storage (ask user where to save)
+              final savedPath = await _fileService.saveReceivedFileWithPicker(
+                suggestedName: transfer.fileName,
                 fileBytes: fileBytes,
+                mimeType: transfer.mimeType,
               );
 
               // Add file message to storage
@@ -316,9 +317,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 final fileBytes = base64Decode(base64Data);
 
                 // Save file to local storage
-                final savedPath = await _fileService.saveReceivedFile(
-                  fileName: fileName,
+                final savedPath = await _fileService.saveReceivedFileWithPicker(
+                  suggestedName: fileName,
                   fileBytes: fileBytes,
+                  mimeType: mimeType,
                 );
 
                 // Get sender device name
