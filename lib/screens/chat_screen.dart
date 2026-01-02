@@ -41,7 +41,7 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen>
-  with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   static const int maxFileSize = 100 * 1024 * 1024; // 100MB
   static const int chunkSize = 256 * 1024; // 256KB chunks
 
@@ -64,6 +64,7 @@ class _ChatScreenState extends State<ChatScreen>
       {}; // fileId -> upload progress (0.0 to 1.0)
   final Map<String, int> _outgoingChunksSent = {};
   final Map<String, int> _outgoingTotalChunks = {};
+  final Set<String> _cancelledSends = {};
   late AnimationController _sendAnimationController;
   Future<void> _remoteWriteQueue = Future.value();
 
@@ -126,9 +127,10 @@ class _ChatScreenState extends State<ChatScreen>
         }
       });
     }
-    _sendAnimationController =
-        AnimationController(vsync: this, duration: const Duration(seconds: 2))
-          ..repeat();
+    _sendAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
   }
 
   @override
@@ -582,6 +584,12 @@ class _ChatScreenState extends State<ChatScreen>
 
       // Send chunks
       for (int i = 0; i < totalChunks; i++) {
+        // Check for cancellation requested by user
+        if (_cancelledSends.contains(fileId)) {
+          print('Send cancelled for $fileId at chunk $i');
+          break;
+        }
+
         final start = i * chunkSize;
         final end = (i + 1) * chunkSize > fileBytes.length
             ? fileBytes.length
@@ -620,29 +628,44 @@ class _ChatScreenState extends State<ChatScreen>
         await Future.delayed(const Duration(milliseconds: 10));
       }
 
-      // Send end message
-      final endMessage =
-          '${fileMessage.roomCode}|fileshare_end|${fileMessage.senderDeviceId}|$fileId';
-
-      if (widget.remoteSocket != null) {
-        await _enqueueRemoteWrite('$endMessage\n');
-      } else {
-        widget.networkService.hostBroadcastFileShareEnd(
-          fileMessage.roomCode,
-          fileMessage.senderDeviceId,
+      if (_cancelledSends.contains(fileId)) {
+        // Mark message as cancelled in messaging service and update UI
+        widget.messagingService.updateMessage(
           fileId,
+          content: 'File send cancelled',
         );
-      }
-
-      print('File $fileId sent in $totalChunks chunks');
-      // Clear counters after a short delay so UI can show 100%
-      Future.delayed(const Duration(milliseconds: 500), () {
         setState(() {
           _outgoingProgress.remove(fileId);
           _outgoingChunksSent.remove(fileId);
           _outgoingTotalChunks.remove(fileId);
+          _cancelledSends.remove(fileId);
+          _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
         });
-      });
+      } else {
+        // Send end message
+        final endMessage =
+            '${fileMessage.roomCode}|fileshare_end|${fileMessage.senderDeviceId}|$fileId';
+
+        if (widget.remoteSocket != null) {
+          await _enqueueRemoteWrite('$endMessage\n');
+        } else {
+          widget.networkService.hostBroadcastFileShareEnd(
+            fileMessage.roomCode,
+            fileMessage.senderDeviceId,
+            fileId,
+          );
+        }
+
+        print('File $fileId sent in $totalChunks chunks');
+        // Clear counters after a short delay so UI can show 100%
+        Future.delayed(const Duration(milliseconds: 500), () {
+          setState(() {
+            _outgoingProgress.remove(fileId);
+            _outgoingChunksSent.remove(fileId);
+            _outgoingTotalChunks.remove(fileId);
+          });
+        });
+      }
     } catch (e) {
       print('Error sending file in chunks: $e');
       _outgoingProgress.remove(fileId);
@@ -1176,6 +1199,7 @@ class _ChatScreenState extends State<ChatScreen>
                 sent: transferProgress.chunksReceived,
                 total: transferProgress.totalChunks,
                 isCurrentUser: isCurrentUser,
+                fileId: fileId,
               ),
             ],
           )
@@ -1186,9 +1210,12 @@ class _ChatScreenState extends State<ChatScreen>
               const SizedBox(height: 8),
               _buildSendingProgressBar(
                 progress: outgoingProgress,
-                sent: _outgoingChunksSent[fileId] ?? ((outgoingProgress * 100).round()),
+                sent:
+                    _outgoingChunksSent[fileId] ??
+                    ((outgoingProgress * 100).round()),
                 total: _outgoingTotalChunks[fileId] ?? 100,
                 isCurrentUser: isCurrentUser,
+                fileId: fileId,
               ),
             ],
           ),
@@ -1215,92 +1242,110 @@ class _ChatScreenState extends State<ChatScreen>
     return Icons.attach_file;
   }
 
+  void _cancelSend(String fileId) {
+    _cancelledSends.add(fileId);
+  }
+
   Widget _buildSendingProgressBar({
     required double progress,
     required int sent,
     required int total,
     required bool isCurrentUser,
+    String? fileId,
   }) {
-    final bgColor = isCurrentUser ? Colors.white24 : Colors.grey.shade600;
+    final bgColor = isCurrentUser ? Colors.white10 : Colors.grey.shade700;
     final fillColor = isCurrentUser ? Colors.white : const Color(0xFF4FC3F7);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Animated progress bar
-        SizedBox(
-          height: 18,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Stack(
-              children: [
-                // background
-                Container(color: bgColor),
-                // filled portion
-                FractionallySizedBox(
-                  widthFactor: progress.clamp(0.0, 1.0),
-                  alignment: Alignment.centerLeft,
-                  child: Container(color: fillColor.withOpacity(0.16)),
-                ),
-                // moving shimmer overlay to indicate activity
-                Positioned.fill(
-                  child: AnimatedBuilder(
-                    animation: _sendAnimationController,
-                    builder: (context, child) {
-                      final anim = _sendAnimationController.value;
-                      return FractionallySizedBox(
-                        alignment: Alignment.centerLeft,
+        const SizedBox(height: 6),
+        // bar row: bar on left, percent on right
+        Row(
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  height: 10,
+                  color: bgColor,
+                  child: Stack(
+                    children: [
+                      FractionallySizedBox(
                         widthFactor: progress.clamp(0.0, 1.0),
-                        child: Transform.translate(
-                          offset: Offset(200 * (anim - 0.5), 0),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.transparent,
-                                  fillColor.withOpacity(0.25),
-                                  Colors.transparent,
-                                ],
-                                begin: Alignment.centerLeft,
-                                end: Alignment.centerRight,
-                                stops: const [0.0, 0.5, 1.0],
-                              ),
-                            ),
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: fillColor.withOpacity(0.22),
                           ),
                         ),
-                      );
-                    },
-                  ),
-                ),
-                // progress text centered
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                    child: Text(
-                      '${(progress * 100).toStringAsFixed(0)}%',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isCurrentUser ? Colors.white : Colors.white,
-                        fontWeight: FontWeight.w600,
                       ),
-                    ),
+                      // narrow shimmer stripe inside filled area
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        bottom: 0,
+                        child: AnimatedBuilder(
+                          animation: _sendAnimationController,
+                          builder: (context, child) {
+                            final w = _sendAnimationController.value;
+                            final fw = (progress.clamp(0.0, 1.0));
+                            // position shimmer only within filled portion
+                            return Align(
+                              alignment: Alignment(-1.0 + 2.0 * w, 0),
+                              child: FractionallySizedBox(
+                                widthFactor: (0.12 * fw).clamp(0.0, fw),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.transparent,
+                                        fillColor.withOpacity(0.4),
+                                        Colors.transparent,
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 56,
+              child: Text(
+                '${(progress * 100).toStringAsFixed(0)}%',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
-        // Chunk counters (styled boxes)
+        // Chunk counters and cancel
         Row(
           children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.25),
+                color: Colors.black.withOpacity(0.18),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'SENT CHUNKS',
@@ -1310,13 +1355,14 @@ class _ChatScreenState extends State<ChatScreen>
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(height: 4),
                   Text(
                     '$sent',
                     style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800),
+                      fontSize: 12,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ],
               ),
@@ -1328,7 +1374,8 @@ class _ChatScreenState extends State<ChatScreen>
                 color: Colors.black.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'TOTAL CHUNKS',
@@ -1338,17 +1385,50 @@ class _ChatScreenState extends State<ChatScreen>
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(height: 4),
                   Text(
                     '$total',
                     style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800),
+                      fontSize: 12,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ],
               ),
             ),
+            const Spacer(),
+            if (isCurrentUser && fileId != null)
+              IconButton(
+                icon: const Icon(Icons.cancel, color: Colors.white70, size: 18),
+                tooltip: 'Cancel send',
+                onPressed: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Cancel send?'),
+                      content: const Text('Do you want to cancel this file transfer?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('No'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Yes'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok == true) {
+                    _cancelSend(fileId);
+                    widget.messagingService.updateMessage(fileId, content: 'Cancelling...');
+                    setState(() {
+                      _messages = widget.messagingService.getMessagesForRoom(widget.roomCode);
+                    });
+                  }
+                },
+              ),
           ],
         ),
       ],

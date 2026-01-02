@@ -9,6 +9,7 @@ class MessagingService {
 
   /// Add a message to the list
   void addMessage({
+    String? id,
     required String senderDeviceId,
     required String senderDeviceName,
     required String content,
@@ -18,13 +19,14 @@ class MessagingService {
     String? fileMimeType,
     int? fileSize,
     String? localFilePath,
+    DateTime? timestamp,
   }) {
     Message message = Message(
-      id: const Uuid().v4(),
+      id: id ?? const Uuid().v4(),
       senderDeviceId: senderDeviceId,
       senderDeviceName: senderDeviceName,
       content: content,
-      timestamp: DateTime.now(),
+      timestamp: timestamp ?? DateTime.now(),
       roomCode: roomCode,
       type: type,
       fileName: fileName,
@@ -45,6 +47,38 @@ class MessagingService {
   /// Get all messages
   List<Message> getAllMessages() {
     return List.unmodifiable(_messages);
+  }
+
+  /// Update an existing message by id. Only provided fields will be changed.
+  void updateMessage(
+    String id, {
+    String? content,
+    String? type,
+    String? fileName,
+    String? fileMimeType,
+    int? fileSize,
+    String? localFilePath,
+  }) {
+    for (int i = 0; i < _messages.length; i++) {
+      if (_messages[i].id == id) {
+        final old = _messages[i];
+        final updated = Message(
+          id: old.id,
+          senderDeviceId: old.senderDeviceId,
+          senderDeviceName: old.senderDeviceName,
+          content: content ?? old.content,
+          timestamp: old.timestamp,
+          roomCode: old.roomCode,
+          type: type ?? old.type,
+          fileName: fileName ?? old.fileName,
+          fileMimeType: fileMimeType ?? old.fileMimeType,
+          fileSize: fileSize ?? old.fileSize,
+          localFilePath: localFilePath ?? old.localFilePath,
+        );
+        _messages[i] = updated;
+        return;
+      }
+    }
   }
 
   /// Clear messages for a specific room
