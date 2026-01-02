@@ -398,7 +398,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _sendMessage() {
+  Future<void> _sendMessage() async {
     final message = _messageController.text.trim();
     if (message.isEmpty) return;
 
@@ -407,8 +407,7 @@ class _ChatScreenState extends State<ChatScreen> {
       try {
         final msgData =
             '${widget.roomCode}|message|${widget.roomService.currentDeviceId}|$message\n';
-        widget.remoteSocket!.write(msgData);
-        widget.remoteSocket!.flush(); // Ensure message is sent immediately
+        await _enqueueRemoteWrite(msgData);
         // Don't add locally - the server will broadcast it back to us
       } catch (e) {
         print('Error sending message: $e');
@@ -558,8 +557,7 @@ class _ChatScreenState extends State<ChatScreen> {
           '${fileMessage.roomCode}|fileshare_start|${fileMessage.senderDeviceId}|${jsonEncode(startMetadata)}';
 
       if (widget.remoteSocket != null) {
-        widget.remoteSocket!.write('$startMessage\n');
-        widget.remoteSocket!.flush();
+        await _enqueueRemoteWrite('$startMessage\n');
       } else {
         widget.networkService.hostBroadcastFileShareStart(
           fileMessage.roomCode,
@@ -588,8 +586,7 @@ class _ChatScreenState extends State<ChatScreen> {
             '${fileMessage.roomCode}|fileshare_chunk|${fileMessage.senderDeviceId}|${jsonEncode(chunkMetadata)}';
 
         if (widget.remoteSocket != null) {
-          widget.remoteSocket!.write('$chunkMessage\n');
-          widget.remoteSocket!.flush();
+          await _enqueueRemoteWrite('$chunkMessage\n');
         } else {
           widget.networkService.hostBroadcastFileShareChunk(
             fileMessage.roomCode,
@@ -612,8 +609,7 @@ class _ChatScreenState extends State<ChatScreen> {
           '${fileMessage.roomCode}|fileshare_end|${fileMessage.senderDeviceId}|$fileId';
 
       if (widget.remoteSocket != null) {
-        widget.remoteSocket!.write('$endMessage\n');
-        widget.remoteSocket!.flush();
+        await _enqueueRemoteWrite('$endMessage\n');
       } else {
         widget.networkService.hostBroadcastFileShareEnd(
           fileMessage.roomCode,

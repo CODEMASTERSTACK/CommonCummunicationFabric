@@ -92,13 +92,18 @@ class FileService {
         targetDir = await getApplicationDocumentsDirectory();
       }
 
-      String targetPath = '${targetDir.path}${Platform.pathSeparator}$suggestedName';
+      String targetPath =
+          '${targetDir.path}${Platform.pathSeparator}$suggestedName';
       File targetFile = File(targetPath);
       if (await targetFile.exists()) {
         final timestamp = DateTime.now().millisecondsSinceEpoch;
         final nameWithoutExt = suggestedName.split('.').first;
-        final ext = (suggestedName.contains('.') ? '.${suggestedName.split('.').last}' : '');
-        targetFile = File('${targetDir.path}${Platform.pathSeparator}${nameWithoutExt}_$timestamp$ext');
+        final ext = (suggestedName.contains('.')
+            ? '.${suggestedName.split('.').last}'
+            : '');
+        targetFile = File(
+          '${targetDir.path}${Platform.pathSeparator}${nameWithoutExt}_$timestamp$ext',
+        );
       }
 
       await targetFile.writeAsBytes(fileBytes);
