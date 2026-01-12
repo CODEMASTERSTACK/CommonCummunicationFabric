@@ -14,6 +14,7 @@ import '../services/room_service.dart';
 import '../services/local_network_service.dart';
 import '../services/file_service.dart';
 import '../services/saved_messages_service.dart';
+import '../widgets/media_preview_widget.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomCode;
@@ -47,7 +48,6 @@ class _ChatScreenState extends State<ChatScreen>
 
   final TextEditingController _messageController = TextEditingController();
   late List<Message> _messages;
-  bool _isConnected = true;
   Timer? _refreshTimer;
   late Set<String>
   _previousDeviceIds; // Track devices to detect disconnects on host
@@ -170,14 +170,10 @@ class _ChatScreenState extends State<ChatScreen>
         }
       },
       onError: (error) {
-        if (mounted) {
-          setState(() => _isConnected = false);
-        }
+        print('Socket error: $error');
       },
       onDone: () {
-        if (mounted) {
-          setState(() => _isConnected = false);
-        }
+        print('Socket closed');
       },
     );
   }
@@ -489,6 +485,18 @@ class _ChatScreenState extends State<ChatScreen>
         final fileId =
             '${DateTime.now().millisecondsSinceEpoch}_${fileName.hashCode}';
 
+        // Save file locally for sender too (so they can view/play it in chat)
+        String? localSavedPath;
+        try {
+          localSavedPath = await _fileService.saveReceivedFile(
+            fileName: fileName,
+            fileBytes: fileBytes,
+          );
+          print('Sender file saved to: $localSavedPath');
+        } catch (e) {
+          print('Error saving sender file copy: $e');
+        }
+
         // Create file message metadata
         final fileMessage = Message(
           id: fileId,
@@ -501,6 +509,7 @@ class _ChatScreenState extends State<ChatScreen>
           fileName: fileName,
           fileMimeType: mimeType,
           fileSize: fileBytes.length,
+          localFilePath: localSavedPath,
         );
 
         // Add message to local storage
@@ -513,6 +522,7 @@ class _ChatScreenState extends State<ChatScreen>
           fileName: fileName,
           fileMimeType: mimeType,
           fileSize: fileBytes.length,
+          localFilePath: localSavedPath,
         );
 
         // Send file in chunks
@@ -772,7 +782,6 @@ class _ChatScreenState extends State<ChatScreen>
 
   @override
   Widget build(BuildContext context) {
-    final room = widget.roomService.getCurrentRoom();
     final connectedDevices = widget.roomService.getConnectedDevices();
     return WillPopScope(
       onWillPop: () async {
@@ -1130,32 +1139,115 @@ class _ChatScreenState extends State<ChatScreen>
     );
   }
 
+  Widget _buildFileMetadata(
+    String fileName,
+    String fileSize,
+    bool isCurrentUser,
+  ) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.attach_file,
+          color: isCurrentUser ? Colors.white70 : Colors.grey.shade400,
+          size: 16,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          '$fileName • $fileSize',
+          style: TextStyle(
+            fontSize: 12,
+            color: isCurrentUser ? Colors.white70 : Colors.grey.shade400,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildFileMessageContent(Message message) {
     final isCurrentUser =
         message.senderDeviceId == widget.roomService.currentDeviceId;
     final fileName = message.fileName ?? 'Unknown file';
     final fileSize = message.fileSize ?? 0;
     final fileSizeStr = FileService.formatFileSize(fileSize);
+    final mimeType = message.fileMimeType;
+    final filePath = message.localFilePath;
 
     // Check if this file is currently being transferred
     final fileId = message.id;
     final transferProgress = _incomingTransfers[fileId];
     final outgoingProgress = _outgoingProgress[fileId];
 
+    // Check if media file and has local path
+    final hasLocalFile = filePath != null && io.File(filePath).existsSync();
+    final isImage = isImageFile(mimeType) && hasLocalFile;
+    final isVideo = isVideoFile(mimeType) && hasLocalFile;
+    final isAudio = isAudioFile(mimeType) && hasLocalFile;
+
+    // Display media preview if it's an image/video/audio with local file
+    if (isImage) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ImagePreviewWidget(
+            filePath: filePath,
+            fileName: fileName,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => FullscreenImageViewer(
+                    filePath: filePath,
+                    fileName: fileName,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildFileMetadata(fileName, fileSizeStr, isCurrentUser),
+        ],
+      );
+    } else if (isVideo) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          VideoPreviewWidget(
+            filePath: filePath,
+            fileName: fileName,
+            isCurrentUser: isCurrentUser,
+          ),
+          const SizedBox(height: 8),
+          _buildFileMetadata(fileName, fileSizeStr, isCurrentUser),
+        ],
+      );
+    } else if (isAudio) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AudioPreviewWidget(
+            filePath: filePath,
+            fileName: fileName,
+            isCurrentUser: isCurrentUser,
+          ),
+        ],
+      );
+    }
+
+    // Default file display (non-media files)
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         InkWell(
-          onTap: message.localFilePath != null
+          onTap: hasLocalFile
               ? () {
-                  _openFile(message.localFilePath!);
+                  _openFile(filePath);
                 }
               : null,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                _getFileIcon(message.fileMimeType),
+                _getFileIcon(mimeType),
                 color: isCurrentUser ? Colors.white : const Color(0xFF3498DB),
                 size: 24,
               ),
@@ -1436,12 +1528,12 @@ class _ChatScreenState extends State<ChatScreen>
   }
 
   void _openFile(String filePath) {
-    // For demonstration, show a dialog
-    // In production, use plugins like 'open_file' to actually open files
+    // File opening is handled by the open_file plugin in saved_content_screen
+    // For now, show the file path
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('File saved at: $filePath'),
-        duration: const Duration(seconds: 3),
+        content: Text('Opening: ${io.File(filePath).path.split('/').last}'),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
